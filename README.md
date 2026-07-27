@@ -1,14 +1,19 @@
 # MusicDownloader
 
+[![Go Reference](https://pkg.go.dev/badge/github.com/GioPelao2/MusicDownloader.svg)](https://pkg.go.dev/github.com/GioPelao2/MusicDownloader)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Go Version](https://img.shields.io/badge/Go-1.22%2B-00ADD8.svg)](https://golang.org)
+
 MusicDownloader is a Go library and command-line tool for downloading audio tracks, albums, playlists, and full artist discographies from Deezer.
 
-It handles stream decryption (BF_CBC_STRIPE), metadata extraction, concurrent downloads, ID3v2 tagging with cover art, and structured folder layout generation.
+It handles stream decryption (BF_CBC_STRIPE), metadata extraction, concurrent downloads, ID3v2 tagging with cover art, synced `.lrc` lyrics generation, and structured folder layout generation.
 
 ## Features
 
 - Downloads tracks, albums, playlists, and full artist discographies by URL or numeric ID.
 - Automatically decrypts audio streams using the Deezer Blowfish CBC algorithm.
 - Embeds ID3v2 metadata (Title, Artist, Album, Track Number, Disc Number, Year, and high-resolution Front Cover).
+- Supports embedding plain-text lyrics (`USLT`) and exporting synced `.lrc` lyrics files (with Deezer & LRCLIB fallback).
 - Supports concurrent track downloads with configurable worker limits.
 - Supports `context.Context` for graceful cancellation.
 - Includes file existence checks to skip already downloaded tracks.
@@ -39,6 +44,11 @@ To obtain your `arl` cookie:
 2. Open browser Developer Tools (F12).
 3. Navigate to Application -> Cookies -> https://www.deezer.com.
 4. Copy the value of the cookie named `arl`.
+
+Optionally add your ARL to your shell profile (`~/.bashrc` or `~/.zshrc`) to avoid passing `-arl` every time:
+```bash
+export DEEZER_ARL="your_arl_cookie_here"
+```
 
 Note: ARL cookies typically expire every 3 months.
 
@@ -85,6 +95,8 @@ func main() {
 		Quality:      deezer.QualityMP3320,
 		Concurrency:  3,
 		SkipExisting: true,
+		EmbedLyrics:  true,
+		SaveLRC:      true,
 		OnProgress: func(done, total int, track deezer.Track) {
 			fmt.Printf("[%d/%d] %s - %s\n", done, total, track.Artist, track.Title)
 		},
@@ -112,10 +124,13 @@ Set the `DEEZER_ARL` environment variable or pass `-arl`:
 ```bash
 # Using environment variable
 export DEEZER_ARL="your_arl_cookie_here"
-./music-downloader https://www.deezer.com/album/302127
+music-downloader https://www.deezer.com/album/302127
 
-# Using flags
-./music-downloader -arl "your_arl_cookie_here" -dir ./music -workers 5 https://www.deezer.com/artist/27
+# Download album with embedded lyrics and synced .lrc files
+music-downloader -lyrics -lrc https://www.deezer.com/album/302127
+
+# Using explicit flags
+music-downloader -arl "your_arl_cookie_here" -dir ./music -workers 5 https://www.deezer.com/artist/27
 ```
 
 CLI Flags:
