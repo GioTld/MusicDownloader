@@ -1,0 +1,13 @@
+# Executables
+music-downloader
+*.exe
+
+# Download directory
+downloads/
+*.mp3
+*.lrc
+
+# IDE / OS
+.DS_Store
+.vscode/
+.idea/

@@ -33,6 +33,8 @@ func main() {
 	quality := flag.String("quality", "320", "audio quality: 128 or 320")
 	workers := flag.Int("workers", 3, "number of parallel downloads")
 	skip := flag.Bool("skip", false, "skip tracks whose output file already exists")
+	embedLyrics := flag.Bool("lyrics", false, "embed lyrics into MP3 ID3v2 tags")
+	saveLRC := flag.Bool("lrc", false, "save synced .lrc lyrics file alongside MP3")
 	flag.Parse()
 
 	if *arl == "" {
@@ -62,6 +64,8 @@ func main() {
 		Quality:      q,
 		Concurrency:  *workers,
 		SkipExisting: *skip,
+		EmbedLyrics:  *embedLyrics,
+		SaveLRC:      *saveLRC,
 		OnProgress: func(done, total int, track deezer.Track) {
 			fmt.Printf("[%d/%d] %s - %s\n", done, total, track.Artist, track.Title)
 		},

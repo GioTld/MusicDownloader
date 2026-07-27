@@ -220,7 +220,22 @@ func (c *Client) downloadOne(ctx context.Context, track Track, dir, filename str
 		return "", err
 	}
 
+	var lyricsText, syncedLRC string
+	if c.opts.EmbedLyrics || c.opts.SaveLRC {
+		lyricsText, syncedLRC, _ = c.getLyrics(ctx, track.ID)
+	}
+
+	if c.opts.SaveLRC && syncedLRC != "" {
+		lrcPath := filepath.Join(dir, strings.TrimSuffix(filename, ".mp3")+".lrc")
+		_ = os.WriteFile(lrcPath, []byte(syncedLRC), 0644)
+	}
+
 	cover, _ := c.getCover(track.CoverID)
+	var lyricsTag string
+	if c.opts.EmbedLyrics {
+		lyricsTag = lyricsText
+	}
+
 	_ = tag.TagMP3(destPath, tag.TrackInfo{
 		Title:       track.Title,
 		Artist:      track.Artist,
@@ -228,6 +243,7 @@ func (c *Client) downloadOne(ctx context.Context, track Track, dir, filename str
 		TrackNumber: track.TrackNumber,
 		DiscNumber:  track.DiscNumber,
 		Year:        track.Year,
+		Lyrics:      lyricsTag,
 	}, cover)
 
 	return destPath, nil

@@ -14,6 +14,7 @@ type TrackInfo struct {
 	TrackNumber int
 	DiscNumber  int
 	Year        string
+	Lyrics      string
 }
 
 // TagMP3 writes ID3v2 tags to the MP3 file at filePath.
@@ -37,6 +38,14 @@ func TagMP3(filePath string, info TrackInfo, cover []byte) error {
 	}
 	if info.DiscNumber > 1 {
 		f.AddTextFrame("TPOS", id3.EncodingUTF8, fmt.Sprintf("%d", info.DiscNumber))
+	}
+	if info.Lyrics != "" {
+		f.AddUnsynchronisedLyricsFrame(id3.UnsynchronisedLyricsFrame{
+			Encoding:          id3.EncodingUTF8,
+			Language:          "eng",
+			ContentDescriptor: "Lyrics",
+			Lyrics:            info.Lyrics,
+		})
 	}
 	if len(cover) > 0 {
 		f.AddAttachedPicture(id3.PictureFrame{

@@ -125,6 +125,8 @@ CLI Flags:
 - `-quality`: Audio quality, either `320` or `128` (default: `320`).
 - `-workers`: Number of parallel track downloads (default: `3`).
 - `-skip`: Skip tracks if output file already exists (default: `false`).
+- `-lyrics`: Embed plain-text lyrics into MP3 ID3v2 tags (default: `false`).
+- `-lrc`: Save synced `.lrc` lyrics file alongside the MP3 (default: `false`).
 
 ## Disclaimer
 

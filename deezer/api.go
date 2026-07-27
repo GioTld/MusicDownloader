@@ -355,6 +355,47 @@ func (c *Client) getTrackStreamURL(ctx context.Context, trackToken string) (stri
 	return result.Data[0].Media[0].Sources[0].URL, nil
 }
 
+type lyricsResults struct {
+	LyricsText string `json:"LYRICS_TEXT"`
+	LyricsSync []struct {
+		Timestamp string `json:"lrc_timestamp"`
+		Line      string `json:"line"`
+	} `json:"LYRICS_SYNC_JSON"`
+}
+
+func (c *Client) getLyrics(ctx context.Context, trackID string) (text string, lrc string, err error) {
+	body, _ := json.Marshal(map[string]string{"SNG_ID": trackID})
+	req, err := c.buildPrivateRequest(ctx, http.MethodPost, "song.getLyrics", body)
+	if err != nil {
+		return "", "", err
+	}
+
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return "", "", err
+	}
+	defer resp.Body.Close()
+
+	var result gwResponse[lyricsResults]
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return "", "", err
+	}
+
+	text = result.Results.LyricsText
+
+	var sb strings.Builder
+	for _, item := range result.Results.LyricsSync {
+		if item.Timestamp != "" {
+			sb.WriteString(item.Timestamp)
+			sb.WriteString(item.Line)
+			sb.WriteString("\n")
+		}
+	}
+	lrc = sb.String()
+
+	return text, lrc, nil
+}
+
 func (c *Client) getCover(coverID string) ([]byte, error) {
 	if coverID == "" {
 		return nil, nil

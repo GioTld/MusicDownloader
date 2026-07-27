@@ -40,6 +40,12 @@ type Options struct {
 	// SkipExisting skips a track if its output file already exists on disk.
 	SkipExisting bool
 
+	// EmbedLyrics embeds plain-text lyrics into the MP3 ID3v2 tag if available.
+	EmbedLyrics bool
+
+	// SaveLRC saves a synced .lrc lyrics file alongside the MP3 if available.
+	SaveLRC bool
+
 	// Proxy is an optional HTTP proxy URL (e.g., "http://127.0.0.1:8080").
 	Proxy string
 
