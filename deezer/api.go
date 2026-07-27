@@ -259,18 +259,30 @@ func (c *Client) Search(ctx context.Context, query string) ([]Track, error) {
 }
 
 // ParseURL extracts the media type and numeric ID from a Deezer URL.
-//
-//	https://www.deezer.com/track/3135556  → (TypeTrack, "3135556", nil)
-//	https://www.deezer.com/album/302127   → (TypeAlbum, "302127", nil)
-//	https://www.deezer.com/playlist/1234  → (TypePlaylist, "1234", nil)
-//	https://www.deezer.com/artist/27      → (TypeArtist, "27", nil)
+// It supports standard URLs, regional URLs (e.g. /us/album/123), and shortlinks (link.deezer.com).
 func ParseURL(rawURL string) (MediaType, string, error) {
-	re := regexp.MustCompile(`deezer\.com/(track|album|playlist|artist)/(\d+)`)
+	re := regexp.MustCompile(`deezer\.com/(?:[a-zA-Z]{2}(?:-[a-zA-Z]{2})?/)?(track|album|playlist|artist)/(\d+)`)
 	m := re.FindStringSubmatch(rawURL)
-	if m == nil {
-		return "", "", fmt.Errorf("not a recognized Deezer URL: %q", rawURL)
+	if m != nil {
+		return MediaType(m[1]), m[2], nil
 	}
-	return MediaType(m[1]), m[2], nil
+
+	if strings.HasPrefix(rawURL, "http://") || strings.HasPrefix(rawURL, "https://") {
+		req, err := http.NewRequest(http.MethodGet, rawURL, nil)
+		if err == nil {
+			req.Header.Set("User-Agent", userAgent)
+			resp, err := http.DefaultClient.Do(req)
+			if err == nil {
+				resp.Body.Close()
+				m = re.FindStringSubmatch(resp.Request.URL.String())
+				if m != nil {
+					return MediaType(m[1]), m[2], nil
+				}
+			}
+		}
+	}
+
+	return "", "", fmt.Errorf("not a recognized Deezer URL: %q", rawURL)
 }
 
 
