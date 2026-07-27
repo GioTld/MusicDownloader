@@ -126,6 +126,10 @@ CLI Flags:
 - `-workers`: Number of parallel track downloads (default: `3`).
 - `-skip`: Skip tracks if output file already exists (default: `false`).
 
+## Disclaimer
+
+This tool and library are created for educational and personal research purposes only. The authors do not encourage, support, or condone unauthorized downloading or redistribution of copyrighted material. Users are solely responsible for complying with Deezer's Terms of Service and local copyright laws.
+
 ## License
 
 MIT
