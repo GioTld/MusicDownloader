@@ -222,7 +222,7 @@ func (c *Client) downloadOne(ctx context.Context, track Track, dir, filename str
 
 	var lyricsText, syncedLRC string
 	if c.opts.EmbedLyrics || c.opts.SaveLRC {
-		lyricsText, syncedLRC, _ = c.getLyrics(ctx, track.ID)
+		lyricsText, syncedLRC, _ = c.getLyrics(ctx, track)
 	}
 
 	if c.opts.SaveLRC && syncedLRC != "" {

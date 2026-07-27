@@ -15,8 +15,8 @@ import (
 
 // gwResponse is the envelope type for Deezer's private gw-light.php API.
 type gwResponse[T any] struct {
-	Results T     `json:"results"`
-	Error   []any `json:"error"`
+	Results T   `json:"results"`
+	Error   any `json:"error"`
 }
 
 
@@ -125,7 +125,7 @@ func (c *Client) GetTrack(ctx context.Context, id string) (Track, error) {
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
 		return Track{}, fmt.Errorf("GetTrack(%s): decode: %w", id, err)
 	}
-	if len(result.Error) > 0 || result.Results.SNGID == "" {
+	if hasGWError(result.Error) || result.Results.SNGID == "" {
 		return Track{}, &ErrNotFound{Type: TypeTrack, ID: id}
 	}
 	return songDataToTrack(result.Results), nil
@@ -309,7 +309,7 @@ func (c *Client) getUserData() (licenseToken string, quality map[string]any, err
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
 		return "", nil, fmt.Errorf("getUserData: decode: %w", err)
 	}
-	if len(result.Error) > 0 {
+	if hasGWError(result.Error) {
 		return "", nil, fmt.Errorf("getUserData: API error: %v", result.Error)
 	}
 
@@ -363,37 +363,69 @@ type lyricsResults struct {
 	} `json:"LYRICS_SYNC_JSON"`
 }
 
-func (c *Client) getLyrics(ctx context.Context, trackID string) (text string, lrc string, err error) {
-	body, _ := json.Marshal(map[string]string{"SNG_ID": trackID})
+type lrclibResponse struct {
+	PlainLyrics  string `json:"plainLyrics"`
+	SyncedLyrics string `json:"syncedLyrics"`
+}
+
+func (c *Client) getLyrics(ctx context.Context, track Track) (text string, lrc string, err error) {
+	body, _ := json.Marshal(map[string]string{"SNG_ID": track.ID})
 	req, err := c.buildPrivateRequest(ctx, http.MethodPost, "song.getLyrics", body)
-	if err != nil {
-		return "", "", err
+	if err == nil {
+		resp, err := c.http.Do(req)
+		if err == nil {
+			var result gwResponse[lyricsResults]
+			if json.NewDecoder(resp.Body).Decode(&result) == nil {
+				text = result.Results.LyricsText
+				var sb strings.Builder
+				for _, item := range result.Results.LyricsSync {
+					if item.Timestamp != "" {
+						sb.WriteString(item.Timestamp)
+						sb.WriteString(item.Line)
+						sb.WriteString("\n")
+					}
+				}
+				lrc = sb.String()
+			}
+			resp.Body.Close()
+		}
 	}
+
+	if text == "" && lrc == "" {
+		text, lrc = c.fetchLRCLIB(track)
+	}
+
+	return text, lrc, nil
+}
+
+func (c *Client) fetchLRCLIB(track Track) (text string, lrc string) {
+	u := fmt.Sprintf("https://lrclib.net/api/get?artist_name=%s&track_name=%s&album_name=%s&duration=%d",
+		url.QueryEscape(track.Artist),
+		url.QueryEscape(track.Title),
+		url.QueryEscape(track.Album),
+		track.Duration,
+	)
+	req, err := http.NewRequest(http.MethodGet, u, nil)
+	if err != nil {
+		return "", ""
+	}
+	req.Header.Set("User-Agent", userAgent)
 
 	resp, err := c.http.Do(req)
 	if err != nil {
-		return "", "", err
+		return "", ""
 	}
 	defer resp.Body.Close()
 
-	var result gwResponse[lyricsResults]
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return "", "", err
+	if resp.StatusCode != http.StatusOK {
+		return "", ""
 	}
 
-	text = result.Results.LyricsText
-
-	var sb strings.Builder
-	for _, item := range result.Results.LyricsSync {
-		if item.Timestamp != "" {
-			sb.WriteString(item.Timestamp)
-			sb.WriteString(item.Line)
-			sb.WriteString("\n")
-		}
+	var res lrclibResponse
+	if err := json.NewDecoder(resp.Body).Decode(&res); err != nil {
+		return "", ""
 	}
-	lrc = sb.String()
-
-	return text, lrc, nil
+	return res.PlainLyrics, res.SyncedLyrics
 }
 
 func (c *Client) getCover(coverID string) ([]byte, error) {
@@ -478,4 +510,17 @@ func coverIDFromURL(coverURL string) string {
 		return ""
 	}
 	return strings.SplitN(parts[1], "/", 2)[0]
+}
+
+func hasGWError(errAny any) bool {
+	if errAny == nil {
+		return false
+	}
+	switch v := errAny.(type) {
+	case []any:
+		return len(v) > 0
+	case map[string]any:
+		return len(v) > 0
+	}
+	return false
 }
