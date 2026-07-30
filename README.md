@@ -113,6 +113,9 @@ func main() {
 		log.Fatalf("download failed: %v", err)
 	}
 
+	// Or download an artist's discography directly by name search query
+	files, err = client.Download(ctx, "Daft Punk", "./music")
+
 	fmt.Printf("Downloaded %d tracks.\n", len(files))
 }
 ```
@@ -125,6 +128,9 @@ Set the `DEEZER_ARL` environment variable or pass `-arl`:
 # Using environment variable
 export DEEZER_ARL="your_arl_cookie_here"
 music-downloader https://www.deezer.com/album/302127
+
+# Download an artist discography by name search
+music-downloader "Daft Punk"
 
 # Download album with embedded lyrics and synced .lrc files
 music-downloader -lyrics -lrc https://www.deezer.com/album/302127

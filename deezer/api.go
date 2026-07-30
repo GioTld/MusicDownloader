@@ -258,6 +258,21 @@ func (c *Client) Search(ctx context.Context, query string) ([]Track, error) {
 	return tracks, nil
 }
 
+// SearchArtist searches for an artist by name and returns the top match with their albums.
+func (c *Client) SearchArtist(ctx context.Context, query string) (Artist, error) {
+	var result struct {
+		Data []publicArtist `json:"data"`
+	}
+	endpoint := fmt.Sprintf("/search/artist?q=%s&limit=1", url.QueryEscape(query))
+	if err := c.getPublic(ctx, endpoint, &result); err != nil {
+		return Artist{}, fmt.Errorf("SearchArtist(%q): %w", query, err)
+	}
+	if len(result.Data) == 0 {
+		return Artist{}, &ErrNotFound{Type: TypeArtist, ID: query}
+	}
+	return c.GetArtist(ctx, fmt.Sprintf("%d", result.Data[0].ID))
+}
+
 // ParseURL extracts the media type and numeric ID from a Deezer URL.
 // It supports standard URLs, regional URLs (e.g. /us/album/123), and shortlinks (link.deezer.com).
 func ParseURL(rawURL string) (MediaType, string, error) {

@@ -17,33 +17,35 @@ import (
 	"github.com/GioPelao2/MusicDownloader/tag"
 )
 
-// Download auto-detects the resource type from rawURL and downloads it to dir.
-//
-//	track    → dir/Artist - Title.mp3
-//	album    → dir/(Year) Album/01 - Title.mp3
-//	playlist → dir/Playlist Name/Artist - Title.mp3
-//	artist   → dir/Artist Name/(Year) Album/01 - Title.mp3
-func (c *Client) Download(ctx context.Context, rawURL, dir string) ([]string, error) {
-	kind, id, err := ParseURL(rawURL)
-	if err != nil {
-		return nil, err
-	}
-	switch kind {
-	case TypeTrack:
-		path, err := c.DownloadTrack(ctx, id, dir)
-		if err != nil {
-			return nil, err
+// Download auto-detects the resource type from rawInput (URL or numeric ID) and downloads it to dir.
+// If rawInput is not a recognized Deezer URL or ID, it searches for an artist matching rawInput
+// and downloads their complete discography.
+func (c *Client) Download(ctx context.Context, rawInput, dir string) ([]string, error) {
+	kind, id, err := ParseURL(rawInput)
+	if err == nil {
+		switch kind {
+		case TypeTrack:
+			path, err := c.DownloadTrack(ctx, id, dir)
+			if err != nil {
+				return nil, err
+			}
+			return []string{path}, nil
+		case TypeAlbum:
+			return c.DownloadAlbum(ctx, id, dir)
+		case TypePlaylist:
+			return c.DownloadPlaylist(ctx, id, dir)
+		case TypeArtist:
+			return c.DownloadArtist(ctx, id, dir)
+		default:
+			return nil, fmt.Errorf("unsupported type: %s", kind)
 		}
-		return []string{path}, nil
-	case TypeAlbum:
-		return c.DownloadAlbum(ctx, id, dir)
-	case TypePlaylist:
-		return c.DownloadPlaylist(ctx, id, dir)
-	case TypeArtist:
-		return c.DownloadArtist(ctx, id, dir)
-	default:
-		return nil, fmt.Errorf("unsupported type: %s", kind)
 	}
+
+	artist, searchErr := c.SearchArtist(ctx, rawInput)
+	if searchErr != nil {
+		return nil, fmt.Errorf("invalid Deezer URL or artist search %q: %w", rawInput, searchErr)
+	}
+	return c.DownloadArtist(ctx, artist.ID, dir)
 }
 
 // DownloadTrack downloads a single track by ID to dir.

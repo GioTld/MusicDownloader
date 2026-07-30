@@ -1,6 +1,8 @@
 package deezer
 
 import (
+	"context"
+	"net/http"
 	"testing"
 )
 
@@ -29,5 +31,19 @@ func TestParseURL(t *testing.T) {
 			t.Errorf("ParseURL(%q) returned empty ID", tt.url)
 		}
 		t.Logf("ParseURL(%q) -> type: %s, id: %s", tt.url, kind, id)
+	}
+}
+
+func TestSearchArtist(t *testing.T) {
+	client := &Client{http: http.DefaultClient}
+	artist, err := client.SearchArtist(context.Background(), "Daft Punk")
+	if err != nil {
+		t.Fatalf("SearchArtist failed: %v", err)
+	}
+	if artist.ID != "27" {
+		t.Errorf("expected ID 27, got %s", artist.ID)
+	}
+	if artist.Name != "Daft Punk" {
+		t.Errorf("expected name Daft Punk, got %s", artist.Name)
 	}
 }
