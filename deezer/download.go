@@ -14,7 +14,7 @@ import (
 
 	"golang.org/x/crypto/blowfish"
 
-	"github.com/GioPelao2/MusicDownloader/tag"
+	"github.com/GioTld/MusicDownloader/tag"
 )
 
 // Download auto-detects the resource type from rawInput (URL or numeric ID) and downloads it to dir.

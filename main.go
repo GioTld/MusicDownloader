@@ -24,7 +24,7 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/GioPelao2/MusicDownloader/deezer"
+	"github.com/GioTld/MusicDownloader/deezer"
 )
 
 func main() {

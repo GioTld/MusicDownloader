@@ -1,6 +1,6 @@
 # MusicDownloader
 
-[![Go Reference](https://pkg.go.dev/badge/github.com/GioPelao2/MusicDownloader.svg)](https://pkg.go.dev/github.com/GioPelao2/MusicDownloader)
+[![Go Reference](https://pkg.go.dev/badge/github.com/GioTld/MusicDownloader.svg)](https://pkg.go.dev/github.com/GioTld/MusicDownloader)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Go Version](https://img.shields.io/badge/Go-1.22%2B-00ADD8.svg)](https://golang.org)
 
@@ -57,13 +57,13 @@ Note: ARL cookies typically expire every 3 months.
 ### As a Command Line Tool
 
 ```bash
-go install github.com/GioPelao2/MusicDownloader@latest
+go install github.com/GioTld/MusicDownloader@latest
 ```
 
 Or clone and build locally:
 
 ```bash
-git clone https://github.com/GioPelao2/MusicDownloader.git
+git clone https://github.com/GioTld/MusicDownloader.git
 cd MusicDownloader
 go build -o music-downloader main.go
 ```
@@ -71,7 +71,7 @@ go build -o music-downloader main.go
 ### As a Go Library
 
 ```bash
-go get github.com/GioPelao2/MusicDownloader
+go get github.com/GioTld/MusicDownloader
 ```
 
 ## Usage
@@ -86,7 +86,7 @@ import (
 	"fmt"
 	"log"
 
-	"github.com/GioPelao2/MusicDownloader/deezer"
+	"github.com/GioTld/MusicDownloader/deezer"
 )
 
 func main() {

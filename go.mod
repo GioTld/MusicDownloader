@@ -1,4 +1,4 @@
-module github.com/GioPelao2/MusicDownloader
+module github.com/GioTld/MusicDownloader
 
 go 1.26.5
 
