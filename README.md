@@ -57,7 +57,12 @@ Note: ARL cookies typically expire every 3 months.
 ### As a Command Line Tool
 
 ```bash
-go install github.com/GioTld/MusicDownloader@latest
+go install github.com/GioTld/MusicDownloader/cmd/music-downloader@latest
+```
+
+*Note:* `go install` runs silently upon success (no output). Ensure `$HOME/go/bin` (or `$GOBIN`) is in your system's `PATH`:
+```bash
+export PATH="$HOME/go/bin:$PATH"
 ```
 
 Or clone and build locally:
@@ -65,7 +70,7 @@ Or clone and build locally:
 ```bash
 git clone https://github.com/GioTld/MusicDownloader.git
 cd MusicDownloader
-go build -o music-downloader main.go
+go build -o music-downloader ./cmd/music-downloader
 ```
 
 ### As a Go Library

@@ -1,5 +1,5 @@
 # Executables
-music-downloader
+/music-downloader
 *.exe
 
 # Download directory
