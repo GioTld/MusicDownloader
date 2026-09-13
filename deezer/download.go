@@ -1,16 +1,19 @@
 package deezer
 
 import (
+	"bufio"
 	"context"
 	"crypto/cipher"
 	"crypto/md5"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 
 	"golang.org/x/crypto/blowfish"
 
@@ -297,41 +300,60 @@ func (c *Client) downloadOne(ctx context.Context, track Track, dir, filename str
 		return "", StatusFailed, fmt.Errorf("track %s: stream URL: %w", track.ID, err)
 	}
 
-	var encrypted []byte
-	if err := withRetry(func() error {
-		var e error
-		encrypted, e = c.fetchStream(ctx, streamURL)
-		return e
-	}); err != nil {
-		return "", StatusFailed, fmt.Errorf("track %s: fetch: %w", track.ID, err)
-	}
-
-	decrypted, err := decrypt(encrypted, deriveKey(track.ID))
-	if err != nil {
-		return "", StatusFailed, fmt.Errorf("track %s: decrypt: %w", track.ID, err)
-	}
-
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return "", StatusFailed, fmt.Errorf("mkdir %s: %w", dir, err)
 	}
-	if err := os.WriteFile(destPath, decrypted, 0644); err != nil {
-		return "", StatusFailed, err
+
+	// Prefetch lyrics and cover art in the background while streaming audio.
+	type metaResult struct {
+		lyricsText string
+		syncedLRC  string
+		cover      []byte
+	}
+	metaCh := make(chan metaResult, 1)
+	go func() {
+		var mr metaResult
+		if c.opts.EmbedLyrics || c.opts.SaveLRC {
+			mr.lyricsText, mr.syncedLRC, _ = c.getLyrics(ctx, track)
+		}
+		mr.cover, _ = c.getCover(track.CoverID)
+		metaCh <- mr
+	}()
+
+	key := deriveKey(track.ID)
+	if err := withRetry(func() error {
+		f, e := os.OpenFile(destPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
+		if e != nil {
+			return e
+		}
+		bw := bufio.NewWriterSize(f, 64*1024)
+		sErr := c.downloadStream(ctx, streamURL, bw, key)
+		fErr := bw.Flush()
+		cErr := f.Close()
+		if sErr != nil {
+			_ = os.Remove(destPath)
+			return sErr
+		}
+		if fErr != nil {
+			_ = os.Remove(destPath)
+			return fErr
+		}
+		return cErr
+	}); err != nil {
+		<-metaCh // drain background goroutine
+		return "", StatusFailed, fmt.Errorf("track %s: download: %w", track.ID, err)
 	}
 
-	var lyricsText, syncedLRC string
-	if c.opts.EmbedLyrics || c.opts.SaveLRC {
-		lyricsText, syncedLRC, _ = c.getLyrics(ctx, track)
-	}
+	meta := <-metaCh
 
-	if c.opts.SaveLRC && syncedLRC != "" {
+	if c.opts.SaveLRC && meta.syncedLRC != "" {
 		lrcPath := filepath.Join(dir, strings.TrimSuffix(filename, ".mp3")+".lrc")
-		_ = os.WriteFile(lrcPath, []byte(syncedLRC), 0644)
+		_ = os.WriteFile(lrcPath, []byte(meta.syncedLRC), 0644)
 	}
 
-	cover, _ := c.getCover(track.CoverID)
 	var lyricsTag string
 	if c.opts.EmbedLyrics {
-		lyricsTag = lyricsText
+		lyricsTag = meta.lyricsText
 	}
 
 	_ = tag.TagMP3(destPath, tag.TrackInfo{
@@ -342,45 +364,137 @@ func (c *Client) downloadOne(ctx context.Context, track Track, dir, filename str
 		DiscNumber:  track.DiscNumber,
 		Year:        track.Year,
 		Lyrics:      lyricsTag,
-	}, cover)
+	}, meta.cover)
 
 	return destPath, StatusDownloaded, nil
 }
 
-func (c *Client) fetchStream(ctx context.Context, streamURL string) ([]byte, error) {
+func (c *Client) downloadStream(ctx context.Context, streamURL string, w io.Writer, key []byte) error {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, streamURL, nil)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	req.Header.Set("User-Agent", userAgent)
 
 	resp, err := c.http.Do(req)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, &ErrUnavailable{Reason: fmt.Sprintf("HTTP %d", resp.StatusCode)}
+		return &ErrUnavailable{Reason: fmt.Sprintf("HTTP %d", resp.StatusCode)}
 	}
-	return io.ReadAll(resp.Body)
+	return decryptStream(resp.Body, w, key)
 }
 
-// resolveTokens fetches full track data for tracks that only have an ID.
-// Playlist responses from the public API return tracks without download tokens.
-func (c *Client) resolveTokens(ctx context.Context, tracks []Track) ([]Track, error) {
-	resolved := make([]Track, 0, len(tracks))
-	for _, t := range tracks {
-		if t.trackToken != "" {
-			resolved = append(resolved, t)
-			continue
-		}
-		info, err := c.GetTrack(ctx, t.ID)
-		if err != nil {
-			return nil, fmt.Errorf("resolving track %s: %w", t.ID, err)
-		}
-		resolved = append(resolved, info)
+// decryptStream streams and decrypts BF_CBC_STRIPE data from r directly to w
+// using a single 2048-byte buffer without allocating memory for the full file.
+func decryptStream(r io.Reader, w io.Writer, key []byte) error {
+	block, err := blowfish.NewCipher(key)
+	if err != nil {
+		return err
 	}
+	buf := make([]byte, chunkSize)
+	chunkIdx := 0
+
+	for {
+		n, err := io.ReadFull(r, buf)
+		if n == chunkSize {
+			if chunkIdx%encryptEvery == 0 {
+				cipher.NewCBCDecrypter(block, blowfishIV).CryptBlocks(buf, buf)
+			}
+			if _, wErr := w.Write(buf); wErr != nil {
+				return wErr
+			}
+			chunkIdx++
+		} else if n > 0 {
+			// Final partial chunk is never encrypted
+			if _, wErr := w.Write(buf[:n]); wErr != nil {
+				return wErr
+			}
+		}
+
+		if err != nil {
+			if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
+				break
+			}
+			return err
+		}
+	}
+	return nil
+}
+
+// resolveTokens fetches full track data for tracks that only have an ID concurrently,
+// preserving the original track order.
+func (c *Client) resolveTokens(ctx context.Context, tracks []Track) ([]Track, error) {
+	if len(tracks) == 0 {
+		return nil, nil
+	}
+
+	resolved := make([]Track, len(tracks))
+	copy(resolved, tracks)
+
+	type task struct {
+		idx int
+		id  string
+	}
+
+	var tasks []task
+	for i, t := range tracks {
+		if t.trackToken == "" {
+			tasks = append(tasks, task{idx: i, id: t.ID})
+		}
+	}
+
+	if len(tasks) == 0 {
+		return resolved, nil
+	}
+
+	concurrency := min(c.opts.Concurrency*2, len(tasks))
+	if concurrency <= 0 {
+		concurrency = 3
+	}
+
+	taskCh := make(chan task, len(tasks))
+	for _, t := range tasks {
+		taskCh <- t
+	}
+	close(taskCh)
+
+	type result struct {
+		idx  int
+		info Track
+		err  error
+	}
+	resCh := make(chan result, len(tasks))
+
+	var wg sync.WaitGroup
+	for range concurrency {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for t := range taskCh {
+				if ctx.Err() != nil {
+					resCh <- result{idx: t.idx, err: ctx.Err()}
+					return
+				}
+				info, err := c.GetTrack(ctx, t.id)
+				resCh <- result{idx: t.idx, info: info, err: err}
+			}
+		}()
+	}
+
+	wg.Wait()
+	close(resCh)
+
+	for r := range resCh {
+		if r.err != nil {
+			return nil, fmt.Errorf("resolving track %d: %w", r.idx, r.err)
+		}
+		resolved[r.idx] = r.info
+	}
+
 	return resolved, nil
 }
 

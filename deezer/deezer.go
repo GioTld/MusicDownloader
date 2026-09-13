@@ -18,6 +18,7 @@ import (
 	"net/http"
 	"net/http/cookiejar"
 	"net/url"
+	"sync"
 	"time"
 )
 
@@ -72,6 +73,7 @@ type Client struct {
 	licenseToken string
 	soundFormat  string
 	opts         Options
+	coverCache   sync.Map
 }
 
 // New creates an authenticated Client.
@@ -97,15 +99,23 @@ func New(opts Options) (*Client, error) {
 		{Name: "comeback", Value: "1"},
 	})
 
-	var rt http.RoundTripper = &http.Transport{}
+	var rt http.RoundTripper
 	if opts.Transport != nil {
 		rt = opts.Transport
-	} else if opts.Proxy != "" {
-		proxyURL, err := url.Parse(opts.Proxy)
-		if err != nil {
-			return nil, fmt.Errorf("invalid proxy URL: %w", err)
+	} else {
+		tr := http.DefaultTransport.(*http.Transport).Clone()
+		tr.MaxIdleConns = 100
+		tr.MaxIdleConnsPerHost = max(10, opts.Concurrency*4)
+		tr.IdleConnTimeout = 90 * time.Second
+		tr.DisableCompression = true
+		if opts.Proxy != "" {
+			proxyURL, err := url.Parse(opts.Proxy)
+			if err != nil {
+				return nil, fmt.Errorf("invalid proxy URL: %w", err)
+			}
+			tr.Proxy = http.ProxyURL(proxyURL)
 		}
-		rt = &http.Transport{Proxy: http.ProxyURL(proxyURL)}
+		rt = tr
 	}
 
 	c := &Client{

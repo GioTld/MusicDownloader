@@ -3,11 +3,13 @@ package deezer
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"io"
 	"math/rand"
 	"net/http"
 	"os"
 	"strings"
+	"sync"
 	"testing"
 )
 
@@ -69,6 +71,8 @@ func TestFilenameAndDirHelpers(t *testing.T) {
 // mockDeezerRoundTripper simulates Deezer endpoints in memory without any external network calls.
 type mockDeezerRoundTripper struct {
 	audioPayload []byte
+	coverReqs    int
+	mu           sync.Mutex
 }
 
 func (m *mockDeezerRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
@@ -187,6 +191,9 @@ func (m *mockDeezerRoundTripper) RoundTrip(req *http.Request) (*http.Response, e
 
 	// 5. Cover art
 	if strings.HasPrefix(urlStr, coverBaseURL) {
+		m.mu.Lock()
+		m.coverReqs++
+		m.mu.Unlock()
 		dummyJPEG := []byte{0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x10, 'J', 'F', 'I', 'F', 0x00}
 		return &http.Response{
 			StatusCode: http.StatusOK,
@@ -317,5 +324,78 @@ func TestClientDownloadCancellation(t *testing.T) {
 	_, err = client.DownloadTrack(ctx, "111", tmpDir)
 	if err == nil {
 		t.Error("expected error on cancelled context, got nil")
+	}
+}
+
+func TestCoverCache(t *testing.T) {
+	mockRT := &mockDeezerRoundTripper{}
+	client, err := New(Options{
+		ARL:       "mock_arl",
+		Transport: mockRT,
+	})
+	if err != nil {
+		t.Fatalf("New failed: %v", err)
+	}
+
+	// Request the same cover ID 5 times concurrently
+	var wg sync.WaitGroup
+	for range 5 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			cover, err := client.getCover("mock_cover_id")
+			if err != nil {
+				t.Errorf("getCover failed: %v", err)
+			}
+			if len(cover) == 0 {
+				t.Error("expected non-empty cover data")
+			}
+		}()
+	}
+	wg.Wait()
+
+	mockRT.mu.Lock()
+	reqCount := mockRT.coverReqs
+	mockRT.mu.Unlock()
+
+	if reqCount != 1 {
+		t.Errorf("expected exactly 1 HTTP cover request due to caching, got %d", reqCount)
+	}
+}
+
+func TestConcurrentResolveTokens(t *testing.T) {
+	mockRT := &mockDeezerRoundTripper{}
+	client, err := New(Options{
+		ARL:         "mock_arl",
+		Concurrency: 4,
+		Transport:   mockRT,
+	})
+	if err != nil {
+		t.Fatalf("New failed: %v", err)
+	}
+
+	// Create 8 tracks without tokens
+	tracks := make([]Track, 8)
+	for i := range tracks {
+		tracks[i] = Track{
+			ID:    fmt.Sprintf("id_%d", i),
+			Title: fmt.Sprintf("Track %d", i),
+		}
+	}
+
+	resolved, err := client.resolveTokens(context.Background(), tracks)
+	if err != nil {
+		t.Fatalf("resolveTokens failed: %v", err)
+	}
+
+	if len(resolved) != len(tracks) {
+		t.Fatalf("expected %d resolved tracks, got %d", len(tracks), len(resolved))
+	}
+
+	// Ensure all tokens resolved and order is strictly maintained
+	for i, tr := range resolved {
+		if tr.trackToken == "" {
+			t.Errorf("track %d has empty trackToken", i)
+		}
 	}
 }

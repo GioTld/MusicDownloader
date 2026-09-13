@@ -99,3 +99,28 @@ func TestDecryptInvalidKey(t *testing.T) {
 		t.Error("expected error for empty key, got nil")
 	}
 }
+
+func TestDecryptStreamRoundTrip(t *testing.T) {
+	key := deriveKey("3135556")
+	testSizes := []int{0, 100, 2048, 2049, 4096, 6144, 8192, 100_000}
+
+	for _, size := range testSizes {
+		payload := make([]byte, size)
+		rng := rand.New(rand.NewSource(int64(size)))
+		rng.Read(payload)
+
+		encrypted, err := encryptBF_CBC_STRIPE(payload, key)
+		if err != nil {
+			t.Fatalf("encrypt failed for size %d: %v", size, err)
+		}
+
+		var out bytes.Buffer
+		if err := decryptStream(bytes.NewReader(encrypted), &out, key); err != nil {
+			t.Fatalf("decryptStream failed for size %d: %v", size, err)
+		}
+
+		if !bytes.Equal(payload, out.Bytes()) {
+			t.Fatalf("decryptStream mismatch for size %d", size)
+		}
+	}
+}

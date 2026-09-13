@@ -444,19 +444,50 @@ func (c *Client) fetchLRCLIB(track Track) (text string, lrc string) {
 	return res.PlainLyrics, res.SyncedLyrics
 }
 
+type coverEntry struct {
+	done chan struct{}
+	data []byte
+	err  error
+}
+
 func (c *Client) getCover(coverID string) ([]byte, error) {
 	if coverID == "" {
 		return nil, nil
 	}
+
+	entry := &coverEntry{done: make(chan struct{})}
+	actual, loaded := c.coverCache.LoadOrStore(coverID, entry)
+	if loaded {
+		e := actual.(*coverEntry)
+		<-e.done
+		return e.data, e.err
+	}
+
 	resp, err := c.http.Get(fmt.Sprintf("%s/%s/1200x1200.jpg", coverBaseURL, coverID))
 	if err != nil {
+		entry.err = err
+		close(entry.done)
+		c.coverCache.Delete(coverID)
 		return nil, err
 	}
 	defer resp.Body.Close()
+
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("cover HTTP %d", resp.StatusCode)
+		entry.err = fmt.Errorf("cover HTTP %d", resp.StatusCode)
+		close(entry.done)
+		c.coverCache.Delete(coverID)
+		return nil, entry.err
 	}
-	return io.ReadAll(resp.Body)
+
+	data, err := io.ReadAll(resp.Body)
+	entry.data = data
+	entry.err = err
+	close(entry.done)
+	if err != nil {
+		c.coverCache.Delete(coverID)
+		return nil, err
+	}
+	return data, nil
 }
 
 
