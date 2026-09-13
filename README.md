@@ -153,6 +153,91 @@ CLI Flags:
 - `-skip`: Skip tracks if output file already exists (default: `false`).
 - `-lyrics`: Embed plain-text lyrics into MP3 ID3v2 tags (default: `false`).
 - `-lrc`: Save synced `.lrc` lyrics file alongside the MP3 (default: `false`).
+- `-cpuprofile`: Path to write CPU profile for callstack analysis (e.g. `cpu.prof`).
+- `-memprofile`: Path to write heap memory allocation profile (e.g. `mem.prof`).
+- `-trace`: Path to write runtime execution trace (e.g. `trace.out`).
+
+## Testing & Performance Profiling
+
+### Running Tests
+Execute the entire test suite (unit tests and offline mock integration tests):
+
+```bash
+# Run all tests
+make test
+# or: go test -v ./...
+
+# Run offline tests only
+make test-offline
+# or: go test -v -short ./...
+```
+
+### Performance Benchmarks
+To prevent performance regressions when modifying cryptographic routines, sanitization, or ID3 tagging:
+
+```bash
+# Run all benchmarks with memory allocation metrics
+make bench
+# or: go test -bench=. -benchmem -run=^$ ./...
+```
+
+To compare performance before and after code changes using [`benchstat`](https://pkg.go.dev/golang.org/x/perf/cmd/benchstat):
+```bash
+# Before change:
+go test -bench=. -benchmem -count=5 ./... > old.txt
+
+# After change:
+go test -bench=. -benchmem -count=5 ./... > new.txt
+
+# Compare:
+benchstat old.txt new.txt
+```
+
+### Callstack Profiling & Execution Time Analysis
+
+Go includes built-in, low-overhead profiling tools (`pprof` and `trace`) to inspect callstacks and measure execution time spent in every function.
+
+#### 1. Generate CPU and Memory Profiles
+You can generate profiles directly from the CLI or from benchmarks:
+
+```bash
+# Via CLI during a download:
+./music-downloader -cpuprofile=cpu.prof -memprofile=mem.prof https://www.deezer.com/album/302127
+
+# Or via benchmark profile target:
+make bench-profile
+```
+
+#### 2. Inspect Callstack in Terminal
+```bash
+# View top CPU-consuming functions (flat and cumulative time):
+go tool pprof -top cpu.prof
+
+# View full callstack tree:
+go tool pprof -tree cpu.prof
+
+# View line-by-line time breakdown for a specific function:
+go tool pprof -list decrypt cpu.prof
+```
+
+#### 3. Interactive Web UI & Flamegraph
+Open an interactive browser view with flamegraphs, top lists, and visual call graphs:
+
+```bash
+make pprof-web
+# or: go tool pprof -http=:8080 cpu.prof
+```
+
+#### 4. Runtime Execution Trace
+To inspect goroutine scheduling, network waiting vs CPU execution, and channel contention:
+
+```bash
+# Generate trace:
+./music-downloader -trace=trace.out https://www.deezer.com/album/302127
+
+# Open interactive trace viewer in browser:
+go tool trace trace.out
+```
 
 ## Disclaimer
 

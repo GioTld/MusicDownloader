@@ -48,13 +48,35 @@ func (c *Client) Download(ctx context.Context, rawInput, dir string) ([]string, 
 	return c.DownloadArtist(ctx, artist.ID, dir)
 }
 
+type albumContext struct {
+	AlbumIndex  int
+	TotalAlbums int
+	AlbumTitle  string
+	AlbumYear   string
+}
+
 // DownloadTrack downloads a single track by ID to dir.
 func (c *Client) DownloadTrack(ctx context.Context, id, dir string) (string, error) {
 	track, err := c.GetTrack(ctx, id)
 	if err != nil {
 		return "", err
 	}
-	return c.downloadOne(ctx, track, dir, standaloneFilename(track))
+	if c.opts.OnTargetResolved != nil {
+		c.opts.OnTargetResolved(TargetDetails{
+			Kind:        TypeTrack,
+			Name:        fmt.Sprintf("%s - %s", track.Artist, track.Title),
+			TotalAlbums: 1,
+			TotalTracks: 1,
+		})
+	}
+	actx := albumContext{AlbumIndex: 1, TotalAlbums: 1, AlbumTitle: track.Album, AlbumYear: track.Year}
+	paths, err := c.downloadTracks(ctx, []Track{track}, actx, func(t Track) (string, string) {
+		return dir, standaloneFilename(t)
+	})
+	if len(paths) > 0 {
+		return paths[0], err
+	}
+	return "", err
 }
 
 // DownloadAlbum downloads all tracks of an album by ID.
@@ -63,8 +85,20 @@ func (c *Client) DownloadAlbum(ctx context.Context, id, dir string) ([]string, e
 	if err != nil {
 		return nil, err
 	}
+	if c.opts.OnTargetResolved != nil {
+		c.opts.OnTargetResolved(TargetDetails{
+			Kind:        TypeAlbum,
+			Name:        album.Title,
+			TotalAlbums: 1,
+			TotalTracks: len(album.Tracks),
+		})
+	}
 	destDir := filepath.Join(dir, sanitize(albumDirName(album)))
-	return c.downloadTracks(ctx, album.Tracks, func(t Track) (string, string) {
+	actx := albumContext{AlbumIndex: 1, TotalAlbums: 1, AlbumTitle: album.Title, AlbumYear: album.Year}
+	if c.opts.OnAlbumStart != nil {
+		c.opts.OnAlbumStart(1, 1, album)
+	}
+	return c.downloadTracks(ctx, album.Tracks, actx, func(t Track) (string, string) {
 		return destDir, albumFilename(t)
 	})
 }
@@ -80,8 +114,20 @@ func (c *Client) DownloadPlaylist(ctx context.Context, id, dir string) ([]string
 	if err != nil {
 		return nil, err
 	}
+	if c.opts.OnTargetResolved != nil {
+		c.opts.OnTargetResolved(TargetDetails{
+			Kind:        TypePlaylist,
+			Name:        playlist.Title,
+			TotalAlbums: 1,
+			TotalTracks: len(tracks),
+		})
+	}
 	destDir := filepath.Join(dir, sanitize(playlist.Title))
-	return c.downloadTracks(ctx, tracks, func(t Track) (string, string) {
+	actx := albumContext{AlbumIndex: 1, TotalAlbums: 1, AlbumTitle: playlist.Title}
+	if c.opts.OnAlbumStart != nil {
+		c.opts.OnAlbumStart(1, 1, Album{Title: playlist.Title, Tracks: tracks})
+	}
+	return c.downloadTracks(ctx, tracks, actx, func(t Track) (string, string) {
 		return destDir, standaloneFilename(t)
 	})
 }
@@ -93,41 +139,74 @@ func (c *Client) DownloadArtist(ctx context.Context, id, dir string) ([]string, 
 		return nil, err
 	}
 
-	artistDir := filepath.Join(dir, sanitize(artist.Name))
-	var allPaths []string
-
+	var loadedAlbums []Album
+	totalTracks := 0
 	for _, stub := range artist.Albums {
 		if ctx.Err() != nil {
 			break
 		}
 		album, err := c.GetAlbum(ctx, stub.ID)
 		if err != nil {
-			fmt.Printf("warning: skipping album %q: %v\n", stub.Title, err)
 			continue
 		}
+		loadedAlbums = append(loadedAlbums, album)
+		totalTracks += len(album.Tracks)
+	}
+
+	if c.opts.OnTargetResolved != nil {
+		c.opts.OnTargetResolved(TargetDetails{
+			Kind:        TypeArtist,
+			Name:        artist.Name,
+			TotalAlbums: len(loadedAlbums),
+			TotalTracks: totalTracks,
+		})
+	}
+
+	artistDir := filepath.Join(dir, sanitize(artist.Name))
+	var allPaths []string
+	var allErrs []string
+
+	for i, album := range loadedAlbums {
+		if ctx.Err() != nil {
+			break
+		}
+		if c.opts.OnAlbumStart != nil {
+			c.opts.OnAlbumStart(i+1, len(loadedAlbums), album)
+		}
 		albumDir := filepath.Join(artistDir, sanitize(albumDirName(album)))
-		paths, err := c.downloadTracks(ctx, album.Tracks, func(t Track) (string, string) {
+		actx := albumContext{
+			AlbumIndex:  i + 1,
+			TotalAlbums: len(loadedAlbums),
+			AlbumTitle:  album.Title,
+			AlbumYear:   album.Year,
+		}
+		paths, err := c.downloadTracks(ctx, album.Tracks, actx, func(t Track) (string, string) {
 			return albumDir, albumFilename(t)
 		})
 		allPaths = append(allPaths, paths...)
 		if err != nil {
-			fmt.Printf("warning: some tracks in %q failed: %v\n", album.Title, err)
+			allErrs = append(allErrs, fmt.Sprintf("%s: %v", album.Title, err))
 		}
+	}
+
+	if len(allErrs) > 0 {
+		return allPaths, fmt.Errorf("some albums had errors:\n%s", strings.Join(allErrs, "\n"))
 	}
 	return allPaths, nil
 }
 
 // downloadTracks downloads a slice of tracks concurrently, bounded by c.opts.Concurrency.
 // pathFn returns the destination directory and filename for each individual track.
-func (c *Client) downloadTracks(ctx context.Context, tracks []Track, pathFn func(Track) (dir, filename string)) ([]string, error) {
+func (c *Client) downloadTracks(ctx context.Context, tracks []Track, actx albumContext, pathFn func(Track) (dir, filename string)) ([]string, error) {
 	if len(tracks) == 0 {
 		return nil, nil
 	}
 
 	type result struct {
-		track Track
-		path  string
-		err   error
+		track  Track
+		path   string
+		status TrackStatus
+		err    error
 	}
 
 	out := make(chan result, len(tracks))
@@ -147,8 +226,8 @@ func (c *Client) downloadTracks(ctx context.Context, tracks []Track, pathFn func
 			go func(track Track) {
 				defer func() { <-sem }()
 				d, f := pathFn(track)
-				path, err := c.downloadOne(ctx, track, d, f)
-				out <- result{track: track, path: path, err: err}
+				path, status, err := c.downloadOne(ctx, track, d, f)
+				out <- result{track: track, path: path, status: status, err: err}
 			}(t)
 		}
 	}
@@ -159,15 +238,32 @@ func (c *Client) downloadTracks(ctx context.Context, tracks []Track, pathFn func
 
 	for range dispatched {
 		r := <-out
+		done++
+		tr := TrackResult{
+			Track:       r.track,
+			Status:      r.status,
+			Err:         r.err,
+			AlbumIndex:  actx.AlbumIndex,
+			TotalAlbums: actx.TotalAlbums,
+			AlbumTitle:  actx.AlbumTitle,
+			AlbumYear:   actx.AlbumYear,
+			TrackIndex:  done,
+			TotalTracks: len(tracks),
+			FilePath:    r.path,
+		}
+
+		if c.opts.OnTrackComplete != nil {
+			c.opts.OnTrackComplete(tr)
+		}
+		if c.opts.OnProgress != nil && r.status == StatusDownloaded {
+			c.opts.OnProgress(done, len(tracks), r.track)
+		}
+
 		if r.err != nil {
 			errs = append(errs, fmt.Sprintf("%s - %s: %v", r.track.Artist, r.track.Title, r.err))
 			continue
 		}
 		paths = append(paths, r.path)
-		done++
-		if c.opts.OnProgress != nil {
-			c.opts.OnProgress(done, len(tracks), r.track)
-		}
 	}
 
 	if cancelled {
@@ -179,26 +275,26 @@ func (c *Client) downloadTracks(ctx context.Context, tracks []Track, pathFn func
 	return paths, nil
 }
 
-
-func (c *Client) downloadOne(ctx context.Context, track Track, dir, filename string) (string, error) {
+func (c *Client) downloadOne(ctx context.Context, track Track, dir, filename string) (string, TrackStatus, error) {
 	if ctx.Err() != nil {
-		return "", ctx.Err()
+		return "", StatusFailed, ctx.Err()
 	}
 	if track.trackToken == "" {
-		return "", &ErrUnavailable{TrackID: track.ID, Reason: "no track token"}
+		err := &ErrUnavailable{TrackID: track.ID, Reason: "no track token"}
+		return "", StatusFailed, err
 	}
 
 	destPath := filepath.Join(dir, filename)
 
 	if c.opts.SkipExisting {
 		if _, err := os.Stat(destPath); err == nil {
-			return destPath, nil
+			return destPath, StatusSkipped, nil
 		}
 	}
 
 	streamURL, err := c.getTrackStreamURL(ctx, track.trackToken)
 	if err != nil {
-		return "", fmt.Errorf("track %s: stream URL: %w", track.ID, err)
+		return "", StatusFailed, fmt.Errorf("track %s: stream URL: %w", track.ID, err)
 	}
 
 	var encrypted []byte
@@ -207,19 +303,19 @@ func (c *Client) downloadOne(ctx context.Context, track Track, dir, filename str
 		encrypted, e = c.fetchStream(ctx, streamURL)
 		return e
 	}); err != nil {
-		return "", fmt.Errorf("track %s: fetch: %w", track.ID, err)
+		return "", StatusFailed, fmt.Errorf("track %s: fetch: %w", track.ID, err)
 	}
 
 	decrypted, err := decrypt(encrypted, deriveKey(track.ID))
 	if err != nil {
-		return "", fmt.Errorf("track %s: decrypt: %w", track.ID, err)
+		return "", StatusFailed, fmt.Errorf("track %s: decrypt: %w", track.ID, err)
 	}
 
 	if err := os.MkdirAll(dir, 0755); err != nil {
-		return "", fmt.Errorf("mkdir %s: %w", dir, err)
+		return "", StatusFailed, fmt.Errorf("mkdir %s: %w", dir, err)
 	}
 	if err := os.WriteFile(destPath, decrypted, 0644); err != nil {
-		return "", err
+		return "", StatusFailed, err
 	}
 
 	var lyricsText, syncedLRC string
@@ -248,7 +344,7 @@ func (c *Client) downloadOne(ctx context.Context, track Track, dir, filename str
 		Lyrics:      lyricsTag,
 	}, cover)
 
-	return destPath, nil
+	return destPath, StatusDownloaded, nil
 }
 
 func (c *Client) fetchStream(ctx context.Context, streamURL string) ([]byte, error) {

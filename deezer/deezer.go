@@ -49,8 +49,20 @@ type Options struct {
 	// Proxy is an optional HTTP proxy URL (e.g., "http://127.0.0.1:8080").
 	Proxy string
 
+	// Transport is an optional HTTP RoundTripper (e.g., for testing with mocks).
+	Transport http.RoundTripper
+
 	// OnProgress is called after each track completes. May be nil.
 	OnProgress ProgressFunc
+
+	// OnTargetResolved is called when the Deezer resource (artist, album, playlist, track) is identified.
+	OnTargetResolved func(TargetDetails)
+
+	// OnAlbumStart is called before downloading an album's tracks.
+	OnAlbumStart func(albumIndex, totalAlbums int, album Album)
+
+	// OnTrackComplete is called whenever a track download succeeds, is skipped, or fails.
+	OnTrackComplete func(TrackResult)
 }
 
 // Client is an authenticated Deezer client. Create one with New.
@@ -85,19 +97,21 @@ func New(opts Options) (*Client, error) {
 		{Name: "comeback", Value: "1"},
 	})
 
-	transport := &http.Transport{}
-	if opts.Proxy != "" {
+	var rt http.RoundTripper = &http.Transport{}
+	if opts.Transport != nil {
+		rt = opts.Transport
+	} else if opts.Proxy != "" {
 		proxyURL, err := url.Parse(opts.Proxy)
 		if err != nil {
 			return nil, fmt.Errorf("invalid proxy URL: %w", err)
 		}
-		transport.Proxy = http.ProxyURL(proxyURL)
+		rt = &http.Transport{Proxy: http.ProxyURL(proxyURL)}
 	}
 
 	c := &Client{
 		http: &http.Client{
 			Jar:       jar,
-			Transport: transport,
+			Transport: rt,
 			Timeout:   60 * time.Second,
 		},
 		opts: opts,

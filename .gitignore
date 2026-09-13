@@ -11,3 +11,8 @@ downloads/
 .DS_Store
 .vscode/
 .idea/
+
+# Profiling and test binaries
+*.prof
+*.out
+*.test

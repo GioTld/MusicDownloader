@@ -63,3 +63,35 @@ type Artist struct {
 	Name   string
 	Albums []Album
 }
+
+// TrackStatus indicates the outcome of downloading an individual track.
+type TrackStatus int
+
+const (
+	StatusDownloaded TrackStatus = iota
+	StatusSkipped
+	StatusFailed
+)
+
+// TargetDetails describes the resolved media resource before downloading starts.
+type TargetDetails struct {
+	Kind        MediaType
+	Name        string
+	TotalAlbums int
+	TotalTracks int
+}
+
+// TrackResult holds progress details and status for a completed or skipped track download.
+type TrackResult struct {
+	Track       Track
+	Status      TrackStatus
+	Err         error
+	AlbumIndex  int // 1-indexed, 0 if not applicable
+	TotalAlbums int // 0 if not applicable
+	AlbumTitle  string
+	AlbumYear   string
+	TrackIndex  int // 1-indexed within the current album/batch
+	TotalTracks int // Total tracks in the current album/batch
+	FilePath    string
+}
+
