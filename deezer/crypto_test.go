@@ -16,16 +16,11 @@ func encryptBF_CBC_STRIPE(data, key []byte) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	out := make([]byte, 0, len(data))
-	for i := 0; i < len(data); i += chunkSize {
-		end := min(i+chunkSize, len(data))
-		chunk := data[i:end]
-		if (i/chunkSize)%encryptEvery == 0 && len(chunk) == chunkSize {
-			enc := make([]byte, chunkSize)
-			cipher.NewCBCEncrypter(block, blowfishIV).CryptBlocks(enc, chunk)
-			out = append(out, enc...)
-		} else {
-			out = append(out, chunk...)
+	out := bytes.Clone(data)
+	for i := 0; i < len(out); i += chunkSize {
+		if (i/chunkSize)%encryptEvery == 0 && i+chunkSize <= len(out) {
+			chunk := out[i : i+chunkSize]
+			cipher.NewCBCEncrypter(block, blowfishIV).CryptBlocks(chunk, chunk)
 		}
 	}
 	return out, nil

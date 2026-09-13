@@ -273,11 +273,12 @@ func (c *Client) SearchArtist(ctx context.Context, query string) (Artist, error)
 	return c.GetArtist(ctx, fmt.Sprintf("%d", result.Data[0].ID))
 }
 
+var deezerURLRegex = regexp.MustCompile(`deezer\.com/(?:[a-zA-Z]{2}(?:-[a-zA-Z]{2})?/)?(track|album|playlist|artist)/(\d+)`)
+
 // ParseURL extracts the media type and numeric ID from a Deezer URL.
 // It supports standard URLs, regional URLs (e.g. /us/album/123), and shortlinks (link.deezer.com).
 func ParseURL(rawURL string) (MediaType, string, error) {
-	re := regexp.MustCompile(`deezer\.com/(?:[a-zA-Z]{2}(?:-[a-zA-Z]{2})?/)?(track|album|playlist|artist)/(\d+)`)
-	m := re.FindStringSubmatch(rawURL)
+	m := deezerURLRegex.FindStringSubmatch(rawURL)
 	if m != nil {
 		return MediaType(m[1]), m[2], nil
 	}
@@ -289,7 +290,7 @@ func ParseURL(rawURL string) (MediaType, string, error) {
 			resp, err := http.DefaultClient.Do(req)
 			if err == nil {
 				resp.Body.Close()
-				m = re.FindStringSubmatch(resp.Request.URL.String())
+				m = deezerURLRegex.FindStringSubmatch(resp.Request.URL.String())
 				if m != nil {
 					return MediaType(m[1]), m[2], nil
 				}

@@ -4,12 +4,12 @@ import (
 	"context"
 	"crypto/cipher"
 	"crypto/md5"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"net/http"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strings"
 
 	"golang.org/x/crypto/blowfish"
@@ -389,7 +389,8 @@ func (c *Client) resolveTokens(ctx context.Context, tracks []Track) ([]Track, er
 // against a secret hardcoded in Deezer's web player JavaScript.
 func deriveKey(trackID string) []byte {
 	h := md5.Sum([]byte(trackID))
-	hx := fmt.Sprintf("%x", h)
+	var hx [32]byte
+	hex.Encode(hx[:], h[:])
 	key := make([]byte, 16)
 	for i := range 16 {
 		key[i] = hx[i] ^ hx[i+16] ^ blowfishSecret[i]
@@ -400,24 +401,19 @@ func deriveKey(trackID string) []byte {
 // decrypt decrypts a BF_CBC_STRIPE stream: 2048-byte chunks where every third
 // one (0, 3, 6, …) is Blowfish-CBC encrypted; the rest are plaintext.
 // A partial final chunk is never encrypted.
+// Decryption is performed in-place to avoid heap allocations.
 func decrypt(data, key []byte) ([]byte, error) {
 	block, err := blowfish.NewCipher(key)
 	if err != nil {
 		return nil, err
 	}
-	out := make([]byte, 0, len(data))
 	for i := 0; i < len(data); i += chunkSize {
-		end := min(i+chunkSize, len(data))
-		chunk := data[i:end]
-		if (i/chunkSize)%encryptEvery == 0 && len(chunk) == chunkSize {
-			dec := make([]byte, chunkSize)
-			cipher.NewCBCDecrypter(block, blowfishIV).CryptBlocks(dec, chunk)
-			out = append(out, dec...)
-		} else {
-			out = append(out, chunk...)
+		if (i/chunkSize)%encryptEvery == 0 && i+chunkSize <= len(data) {
+			chunk := data[i : i+chunkSize]
+			cipher.NewCBCDecrypter(block, blowfishIV).CryptBlocks(chunk, chunk)
 		}
 	}
-	return out, nil
+	return data, nil
 }
 
 func standaloneFilename(t Track) string {
@@ -438,9 +434,20 @@ func albumDirName(a Album) string {
 	return a.Title
 }
 
+func isInvalidFilenameChar(r rune) rune {
+	if r < 0x20 {
+		return '_'
+	}
+	switch r {
+	case '<', '>', ':', '"', '/', '\\', '|', '?', '*':
+		return '_'
+	default:
+		return r
+	}
+}
+
 func sanitize(name string) string {
-	re := regexp.MustCompile(`[<>:"/\\|?*\x00-\x1f]`)
-	name = re.ReplaceAllString(name, "_")
+	name = strings.Map(isInvalidFilenameChar, name)
 	name = strings.TrimRight(name, ". ")
 	if name == "" {
 		return "unknown"
