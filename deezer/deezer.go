@@ -83,7 +83,7 @@ func New(opts Options) (*Client, error) {
 		return nil, &ErrAuth{Reason: "ARL is required"}
 	}
 	if opts.Concurrency <= 0 {
-		opts.Concurrency = 3
+		opts.Concurrency = 8
 	}
 	if opts.Quality == "" {
 		opts.Quality = QualityMP3320

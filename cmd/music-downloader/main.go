@@ -48,7 +48,7 @@ func run() error {
 	arl := flag.String("arl", os.Getenv("DEEZER_ARL"), "Deezer ARL cookie (or set DEEZER_ARL env var)")
 	dir := flag.String("dir", "./downloads", "output directory")
 	quality := flag.String("quality", "320", "audio quality: 128 or 320")
-	workers := flag.Int("workers", 3, "number of parallel downloads")
+	workers := flag.Int("workers", 8, "number of parallel downloads")
 	skip := flag.Bool("skip", false, "skip tracks whose output file already exists")
 	embedLyrics := flag.Bool("lyrics", false, "embed lyrics into MP3 ID3v2 tags")
 	saveLRC := flag.Bool("lrc", false, "save synced .lrc lyrics file alongside MP3")

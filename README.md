@@ -149,7 +149,7 @@ CLI Flags:
 - `-arl`: Deezer ARL cookie (defaults to `DEEZER_ARL` environment variable).
 - `-dir`: Target output directory (default: `./downloads`).
 - `-quality`: Audio quality, either `320` or `128` (default: `320`).
-- `-workers`: Number of parallel track downloads (default: `3`).
+- `-workers`: Number of parallel track downloads (default: `8`).
 - `-skip`: Skip tracks if output file already exists (default: `false`).
 - `-lyrics`: Embed plain-text lyrics into MP3 ID3v2 tags (default: `false`).
 - `-lrc`: Save synced `.lrc` lyrics file alongside the MP3 (default: `false`).
