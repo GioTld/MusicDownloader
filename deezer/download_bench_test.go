@@ -1,6 +1,7 @@
 package deezer
 
 import (
+	"os"
 	"testing"
 )
 
@@ -34,5 +35,19 @@ func BenchmarkAlbumDirName(b *testing.B) {
 	b.ResetTimer()
 	for b.Loop() {
 		_ = albumDirName(album)
+	}
+}
+
+func BenchmarkValidateTrackFile(b *testing.B) {
+	tmpDir := b.TempDir()
+	targetPath := tmpDir + "/test.mp3"
+	data := append([]byte("ID3\x03\x00\x00\x00\x00\x00\x00"), make([]byte, 120*1024)...)
+	_ = os.WriteFile(targetPath, data, 0644)
+	size := int64(len(data))
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	for b.Loop() {
+		_ = validateTrackFile(targetPath, size)
 	}
 }
