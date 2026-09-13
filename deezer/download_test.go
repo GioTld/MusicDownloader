@@ -8,6 +8,7 @@ import (
 	"math/rand"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -397,5 +398,102 @@ func TestConcurrentResolveTokens(t *testing.T) {
 		if tr.trackToken == "" {
 			t.Errorf("track %d has empty trackToken", i)
 		}
+	}
+}
+
+func TestValidateTrackFile(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// 1. File too small (< 100KB)
+	smallFile := filepath.Join(tmpDir, "small.mp3")
+	_ = os.WriteFile(smallFile, []byte("ID3dummy"), 0644)
+	if validateTrackFile(smallFile, int64(len("ID3dummy"))) {
+		t.Error("expected validateTrackFile to return false for file < 100KB")
+	}
+
+	// 2. Large file but invalid header
+	invalidFile := filepath.Join(tmpDir, "invalid.mp3")
+	bigGarbage := make([]byte, 120*1024)
+	_ = os.WriteFile(invalidFile, bigGarbage, 0644)
+	if validateTrackFile(invalidFile, int64(len(bigGarbage))) {
+		t.Error("expected validateTrackFile to return false for file with invalid header")
+	}
+
+	// 3. Valid MP3 with ID3 header
+	validID3 := filepath.Join(tmpDir, "valid_id3.mp3")
+	id3Data := append([]byte("ID3\x03\x00\x00\x00\x00\x00\x00"), make([]byte, 120*1024)...)
+	_ = os.WriteFile(validID3, id3Data, 0644)
+	if !validateTrackFile(validID3, int64(len(id3Data))) {
+		t.Error("expected validateTrackFile to return true for valid ID3 MP3")
+	}
+
+	// 4. Valid MP3 with MPEG frame sync
+	validMPEG := filepath.Join(tmpDir, "valid_mpeg.mp3")
+	mpegData := append([]byte{0xFF, 0xFB, 0x90, 0x64}, make([]byte, 120*1024)...)
+	_ = os.WriteFile(validMPEG, mpegData, 0644)
+	if !validateTrackFile(validMPEG, int64(len(mpegData))) {
+		t.Error("expected validateTrackFile to return true for valid MPEG sync MP3")
+	}
+
+	// 5. Valid FLAC file
+	validFLAC := filepath.Join(tmpDir, "valid.flac")
+	flacData := append([]byte("fLaC"), make([]byte, 120*1024)...)
+	_ = os.WriteFile(validFLAC, flacData, 0644)
+	if !validateTrackFile(validFLAC, int64(len(flacData))) {
+		t.Error("expected validateTrackFile to return true for valid FLAC")
+	}
+}
+
+func TestSyncModeReDownloadCorrupt(t *testing.T) {
+	rawAudio := make([]byte, 150*1024) // > 100 KB so it passes validation when complete
+	key := deriveKey("111")
+	encryptedAudio, err := encryptBF_CBC_STRIPE(rawAudio, key)
+	if err != nil {
+		t.Fatalf("failed to encrypt audio: %v", err)
+	}
+
+	mockRT := &mockDeezerRoundTripper{audioPayload: encryptedAudio}
+	client, err := New(Options{
+		ARL:          "mock_arl",
+		SkipExisting: true,
+		SyncMode:     true,
+		Transport:    mockRT,
+	})
+	if err != nil {
+		t.Fatalf("New failed: %v", err)
+	}
+
+	tmpDir := t.TempDir()
+	destPath := filepath.Join(tmpDir, "Mock Artist - Mock Song.mp3")
+
+	// Pre-create corrupt 0-byte file
+	_ = os.WriteFile(destPath, []byte{}, 0644)
+
+	// 1. First download: file is corrupt, should re-download
+	path, err := client.DownloadTrack(context.Background(), "111", tmpDir)
+	if err != nil {
+		t.Fatalf("DownloadTrack failed: %v", err)
+	}
+	if path != destPath {
+		t.Errorf("path = %s, want %s", path, destPath)
+	}
+	fi, err := os.Stat(destPath)
+	if err != nil || fi.Size() == 0 {
+		t.Fatalf("expected re-downloaded non-empty file, got size %d, err %v", fi.Size(), err)
+	}
+
+	// 2. Second download: file is now complete and valid, should be skipped
+	var skipped bool
+	client.opts.OnTrackComplete = func(res TrackResult) {
+		if res.Status == StatusSkipped {
+			skipped = true
+		}
+	}
+	_, err = client.DownloadTrack(context.Background(), "111", tmpDir)
+	if err != nil {
+		t.Fatalf("second DownloadTrack failed: %v", err)
+	}
+	if !skipped {
+		t.Error("expected track to be skipped on second download")
 	}
 }

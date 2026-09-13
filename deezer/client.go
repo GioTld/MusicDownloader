@@ -34,6 +34,15 @@ func (c *Client) initSession() error {
 }
 
 func (c *Client) resolveSoundFormat(quality map[string]any) string {
+	if c.opts.Quality == QualityFLAC {
+		if lossless, _ := quality["lossless"].(bool); lossless {
+			return "FLAC"
+		}
+		// Fallback to high if lossless is not available on this account
+		if high, _ := quality["high"].(bool); high {
+			return "MP3_320"
+		}
+	}
 	if c.opts.Quality == QualityMP3320 {
 		if high, _ := quality["high"].(bool); high {
 			return "MP3_320"

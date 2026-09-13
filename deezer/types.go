@@ -2,11 +2,13 @@ package deezer
 
 // Quality represents the audio format requested from Deezer.
 // Free accounts are capped at QualityMP3128 regardless of this setting.
+// FLAC requires a HiFi/lossless subscription.
 type Quality string
 
 const (
 	QualityMP3128 Quality = "MP3_128"
 	QualityMP3320 Quality = "MP3_320"
+	QualityFLAC   Quality = "FLAC"
 )
 
 // MediaType identifies the kind of Deezer resource.
@@ -24,9 +26,14 @@ type Track struct {
 	ID          string
 	Title       string
 	Artist      string
+	AlbumArtist string // TPE2 — the main album artist (may differ from Artist on features)
 	Album       string
+	Genre       string
+	ISRC        string // International Standard Recording Code
 	TrackNumber int
+	TrackTotal  int // Total tracks on the disc/album
 	DiscNumber  int
+	DiscTotal   int // Total discs in the album
 	Year        string
 	Duration    int // seconds
 	CoverID     string

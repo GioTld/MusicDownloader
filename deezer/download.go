@@ -2,6 +2,7 @@ package deezer
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"crypto/cipher"
 	"crypto/md5"
@@ -74,7 +75,7 @@ func (c *Client) DownloadTrack(ctx context.Context, id, dir string) (string, err
 	}
 	actx := albumContext{AlbumIndex: 1, TotalAlbums: 1, AlbumTitle: track.Album, AlbumYear: track.Year}
 	paths, err := c.downloadTracks(ctx, []Track{track}, actx, func(t Track) (string, string) {
-		return dir, standaloneFilename(t)
+		return dir, standaloneFilenameWithExt(t, c.ext())
 	})
 	if len(paths) > 0 {
 		return paths[0], err
@@ -102,7 +103,7 @@ func (c *Client) DownloadAlbum(ctx context.Context, id, dir string) ([]string, e
 		c.opts.OnAlbumStart(1, 1, album)
 	}
 	return c.downloadTracks(ctx, album.Tracks, actx, func(t Track) (string, string) {
-		return destDir, albumFilename(t)
+		return destDir, albumFilenameWithExt(t, c.ext())
 	})
 }
 
@@ -131,7 +132,7 @@ func (c *Client) DownloadPlaylist(ctx context.Context, id, dir string) ([]string
 		c.opts.OnAlbumStart(1, 1, Album{Title: playlist.Title, Tracks: tracks})
 	}
 	return c.downloadTracks(ctx, tracks, actx, func(t Track) (string, string) {
-		return destDir, standaloneFilename(t)
+		return destDir, standaloneFilenameWithExt(t, c.ext())
 	})
 }
 
@@ -184,7 +185,7 @@ func (c *Client) DownloadArtist(ctx context.Context, id, dir string) ([]string, 
 			AlbumYear:   album.Year,
 		}
 		paths, err := c.downloadTracks(ctx, album.Tracks, actx, func(t Track) (string, string) {
-			return albumDir, albumFilename(t)
+			return albumDir, albumFilenameWithExt(t, c.ext())
 		})
 		allPaths = append(allPaths, paths...)
 		if err != nil {
@@ -290,8 +291,18 @@ func (c *Client) downloadOne(ctx context.Context, track Track, dir, filename str
 	destPath := filepath.Join(dir, filename)
 
 	if c.opts.SkipExisting {
-		if _, err := os.Stat(destPath); err == nil {
-			return destPath, StatusSkipped, nil
+		if fi, err := os.Stat(destPath); err == nil {
+			if !c.opts.SyncMode {
+				if fi.Size() > 0 {
+					return destPath, StatusSkipped, nil
+				}
+			} else {
+				if validateTrackFile(destPath, fi.Size()) {
+					return destPath, StatusSkipped, nil
+				}
+			}
+			// Incomplete or corrupt file: remove and re-download
+			_ = os.Remove(destPath)
 		}
 	}
 
@@ -347,7 +358,8 @@ func (c *Client) downloadOne(ctx context.Context, track Track, dir, filename str
 	meta := <-metaCh
 
 	if c.opts.SaveLRC && meta.syncedLRC != "" {
-		lrcPath := filepath.Join(dir, strings.TrimSuffix(filename, ".mp3")+".lrc")
+		ext := filepath.Ext(filename)
+		lrcPath := filepath.Join(dir, strings.TrimSuffix(filename, ext)+".lrc")
 		_ = os.WriteFile(lrcPath, []byte(meta.syncedLRC), 0644)
 	}
 
@@ -356,12 +368,17 @@ func (c *Client) downloadOne(ctx context.Context, track Track, dir, filename str
 		lyricsTag = meta.lyricsText
 	}
 
-	_ = tag.TagMP3(destPath, tag.TrackInfo{
+	_ = tag.TagFile(destPath, tag.TrackInfo{
 		Title:       track.Title,
 		Artist:      track.Artist,
+		AlbumArtist: track.AlbumArtist,
 		Album:       track.Album,
+		Genre:       track.Genre,
+		ISRC:        track.ISRC,
 		TrackNumber: track.TrackNumber,
+		TrackTotal:  track.TrackTotal,
 		DiscNumber:  track.DiscNumber,
+		DiscTotal:   track.DiscTotal,
 		Year:        track.Year,
 		Lyrics:      lyricsTag,
 	}, meta.cover)
@@ -530,15 +547,60 @@ func decrypt(data, key []byte) ([]byte, error) {
 	return data, nil
 }
 
+func (c *Client) ext() string {
+	if c.soundFormat == "FLAC" {
+		return ".flac"
+	}
+	return ".mp3"
+}
+
 func standaloneFilename(t Track) string {
-	return sanitize(fmt.Sprintf("%s - %s.mp3", t.Artist, t.Title))
+	return standaloneFilenameWithExt(t, ".mp3")
+}
+
+func standaloneFilenameWithExt(t Track, ext string) string {
+	return sanitize(fmt.Sprintf("%s - %s%s", t.Artist, t.Title, ext))
 }
 
 func albumFilename(t Track) string {
+	return albumFilenameWithExt(t, ".mp3")
+}
+
+func albumFilenameWithExt(t Track, ext string) string {
 	if t.TrackNumber > 0 {
-		return sanitize(fmt.Sprintf("%02d - %s.mp3", t.TrackNumber, t.Title))
+		return sanitize(fmt.Sprintf("%02d - %s%s", t.TrackNumber, t.Title, ext))
 	}
-	return sanitize(t.Title + ".mp3")
+	return sanitize(t.Title + ext)
+}
+
+// validateTrackFile verifies that a file has at least 100 KB and valid magic header bytes.
+func validateTrackFile(filePath string, size int64) bool {
+	if size < 100*1024 {
+		return false
+	}
+	f, err := os.Open(filePath)
+	if err != nil {
+		return false
+	}
+	defer f.Close()
+
+	var hdr [4]byte
+	if _, err := io.ReadFull(f, hdr[:]); err != nil {
+		return false
+	}
+
+	lower := strings.ToLower(filePath)
+	if strings.HasSuffix(lower, ".flac") {
+		return bytes.Equal(hdr[:], []byte("fLaC"))
+	}
+	// MP3: check ID3v2 ("ID3") or MPEG frame sync (11 bits all 1s: 0xFF 0xEx)
+	if string(hdr[:3]) == "ID3" {
+		return true
+	}
+	if hdr[0] == 0xFF && (hdr[1]&0xE0) == 0xE0 {
+		return true
+	}
+	return false
 }
 
 func albumDirName(a Album) string {

@@ -44,6 +44,7 @@ type songDataResults struct {
 	TRACKNUM            string `json:"TRACK_NUMBER"`
 	DISKNUM             string `json:"DISK_NUMBER"`
 	PHYSICALRELEASEDATE string `json:"PHYSICAL_RELEASE_DATE"`
+	ISRC                string `json:"ISRC"`
 }
 
 type albumTracksResults struct {
@@ -59,8 +60,6 @@ type trackURLResponse struct {
 		} `json:"media"`
 	} `json:"data"`
 }
-
-
 
 type publicTrack struct {
 	ID       int    `json:"id"`
@@ -80,7 +79,12 @@ type publicAlbum struct {
 	Title       string `json:"title"`
 	CoverMedium string `json:"cover_medium"`
 	ReleaseDate string `json:"release_date"`
-	Artist      struct {
+	Genres      struct {
+		Data []struct {
+			Name string `json:"name"`
+		} `json:"data"`
+	} `json:"genres"`
+	Artist struct {
 		Name string `json:"name"`
 	} `json:"artist"`
 }
@@ -159,8 +163,25 @@ func (c *Client) GetAlbum(ctx context.Context, id string) (Album, error) {
 	}
 
 	tracks := make([]Track, len(result.Results.Data))
+	maxDisc := 1
 	for i, d := range result.Results.Data {
 		tracks[i] = songDataToTrack(d)
+		if tracks[i].DiscNumber > maxDisc {
+			maxDisc = tracks[i].DiscNumber
+		}
+	}
+
+	genre := ""
+	if len(pub.Genres.Data) > 0 {
+		genre = pub.Genres.Data[0].Name
+	}
+	for i := range tracks {
+		tracks[i].AlbumArtist = pub.Artist.Name
+		tracks[i].TrackTotal = len(tracks)
+		tracks[i].DiscTotal = maxDisc
+		if genre != "" {
+			tracks[i].Genre = genre
+		}
 	}
 
 	return Album{
@@ -533,6 +554,7 @@ func songDataToTrack(d songDataResults) Track {
 		Artist:       d.ARTNAME,
 		Album:        d.ALBTITLE,
 		CoverID:      d.ALBPICTURE,
+		ISRC:         d.ISRC,
 		trackToken:   d.TRACKTOKEN,
 		md5Origin:    d.MD5ORIGIN,
 		mediaVersion: d.MEDIAVERSION,

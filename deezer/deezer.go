@@ -41,6 +41,9 @@ type Options struct {
 	// SkipExisting skips a track if its output file already exists on disk.
 	SkipExisting bool
 
+	// SyncMode validates existing files before skipping (re-downloads if corrupt or incomplete).
+	SyncMode bool
+
 	// EmbedLyrics embeds plain-text lyrics into the MP3 ID3v2 tag if available.
 	EmbedLyrics bool
 

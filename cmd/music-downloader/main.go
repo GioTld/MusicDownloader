@@ -3,15 +3,19 @@
 // Authentication requires a valid ARL cookie set via the -arl flag or DEEZER_ARL env variable.
 // Obtain the ARL from browser DevTools: Application → Cookies → deezer.com → arl.
 //
+// A config file is auto-loaded from ~/.config/music-downloader/config.toml if it exists.
+// CLI flags override any config file values.
+//
 // Usage:
 //
 //	music-downloader [flags] <deezer-url>
 //
 // Examples:
 //
-//	music-downloader -arl $DEEZER_ARL https://www.deezer.com/track/3135556
-//	music-downloader -arl $DEEZER_ARL https://www.deezer.com/album/302127 -dir ./music
-//	music-downloader -arl $DEEZER_ARL https://www.deezer.com/artist/27 -workers 5
+//	music-downloader https://www.deezer.com/track/3135556
+//	music-downloader https://www.deezer.com/album/302127 -dir ./music
+//	music-downloader https://www.deezer.com/artist/27 -workers 5
+//	music-downloader -sync https://www.deezer.com/playlist/1234
 package main
 
 import (
@@ -45,18 +49,38 @@ func main() {
 }
 
 func run() error {
-	arl := flag.String("arl", os.Getenv("DEEZER_ARL"), "Deezer ARL cookie (or set DEEZER_ARL env var)")
-	dir := flag.String("dir", "./downloads", "output directory")
-	quality := flag.String("quality", "320", "audio quality: 128 or 320")
-	workers := flag.Int("workers", 8, "number of parallel downloads")
-	skip := flag.Bool("skip", false, "skip tracks whose output file already exists")
-	embedLyrics := flag.Bool("lyrics", false, "embed lyrics into MP3 ID3v2 tags")
-	saveLRC := flag.Bool("lrc", false, "save synced .lrc lyrics file alongside MP3")
-	cpuProfile := flag.String("cpuprofile", "", "write cpu profile to file")
-	memProfile := flag.String("memprofile", "", "write memory profile to file")
-	traceProfile := flag.String("trace", "", "write execution trace to file")
-	flag.Parse()
+	// ── Config file (lowest priority) ────────────────────────────────────
+	// We do a first-pass parse just for -config so we know which file to load.
+	firstPass := flag.NewFlagSet("pre", flag.ContinueOnError)
+	configPath := firstPass.String("config", "", "")
+	firstPass.Parse(os.Args[1:]) //nolint:errcheck
 
+	cfg, _, err := loadConfig(*configPath)
+	if err != nil {
+		return fmt.Errorf("config: %w", err)
+	}
+
+	// ── CLI flags (highest priority) ──────────────────────────────────────
+	fs := flag.NewFlagSet("music-downloader", flag.ExitOnError)
+
+	arl          := fs.String("arl",        firstNonEmpty(os.Getenv("DEEZER_ARL"), cfg.ARL), "Deezer ARL cookie (or set DEEZER_ARL env var)")
+	dir          := fs.String("dir",        stringDefault(cfg.Dir, "./downloads"),            "output directory")
+	quality      := fs.String("quality",    stringDefault(cfg.Quality, "320"),                "audio quality: 128, 320, or flac")
+	workers      := fs.Int("workers",       intDefault(cfg.Workers, 8),                       "number of parallel downloads")
+	skip         := fs.Bool("skip",         cfg.Skip,                                         "skip tracks whose output file already exists")
+	sync         := fs.Bool("sync",         cfg.Sync,                                         "sync mode: skip valid files, re-download corrupt/incomplete ones")
+	embedLyrics  := fs.Bool("lyrics",       cfg.Lyrics,                                       "embed lyrics into MP3/FLAC tags")
+	saveLRC      := fs.Bool("lrc",          cfg.LRC,                                          "save synced .lrc lyrics file alongside audio")
+	cpuProfile   := fs.String("cpuprofile", "",                                               "write cpu profile to file")
+	memProfile   := fs.String("memprofile", "",                                               "write memory profile to file")
+	traceProfile := fs.String("trace",      "",                                               "write execution trace to file")
+	fs.String("config", *configPath, "path to config.toml (default: ~/.config/music-downloader/config.toml)")
+
+	if err := fs.Parse(os.Args[1:]); err != nil {
+		return err
+	}
+
+	// ── Profiling ─────────────────────────────────────────────────────────
 	if *cpuProfile != "" {
 		f, err := os.Create(*cpuProfile)
 		if err != nil {
@@ -68,7 +92,6 @@ func run() error {
 		}
 		defer pprof.StopCPUProfile()
 	}
-
 	if *traceProfile != "" {
 		f, err := os.Create(*traceProfile)
 		if err != nil {
@@ -80,7 +103,6 @@ func run() error {
 		}
 		defer trace.Stop()
 	}
-
 	if *memProfile != "" {
 		defer func() {
 			f, err := os.Create(*memProfile)
@@ -96,21 +118,27 @@ func run() error {
 		}()
 	}
 
+	// ── Validation ────────────────────────────────────────────────────────
 	if *arl == "" {
-		flag.Usage()
-		return errors.New("ARL cookie is required (-arl flag or DEEZER_ARL env var)")
+		fs.Usage()
+		return errors.New("ARL cookie is required (-arl flag, DEEZER_ARL env var, or config.toml)")
 	}
-
-	args := flag.Args()
+	args := fs.Args()
 	if len(args) == 0 {
-		flag.Usage()
+		fs.Usage()
 		return errors.New("provide a Deezer URL as the last argument")
 	}
 	rawURL := args[0]
 
-	q := deezer.QualityMP3320
-	if *quality == "128" {
+	// ── Quality ───────────────────────────────────────────────────────────
+	var q deezer.Quality
+	switch *quality {
+	case "flac", "FLAC":
+		q = deezer.QualityFLAC
+	case "128":
 		q = deezer.QualityMP3128
+	default:
+		q = deezer.QualityMP3320
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -122,7 +150,8 @@ func run() error {
 		ARL:          *arl,
 		Quality:      q,
 		Concurrency:  *workers,
-		SkipExisting: *skip,
+		SkipExisting: *skip || *sync,
+		SyncMode:     *sync,
 		EmbedLyrics:  *embedLyrics,
 		SaveLRC:      *saveLRC,
 		OnTargetResolved: func(target deezer.TargetDetails) {
@@ -146,4 +175,30 @@ func run() error {
 
 	printer.PrintSummary(*dir)
 	return nil
+}
+
+// firstNonEmpty returns the first non-empty string from the list.
+func firstNonEmpty(values ...string) string {
+	for _, v := range values {
+		if v != "" {
+			return v
+		}
+	}
+	return ""
+}
+
+// stringDefault returns s if non-empty, otherwise fallback.
+func stringDefault(s, fallback string) string {
+	if s != "" {
+		return s
+	}
+	return fallback
+}
+
+// intDefault returns n if > 0, otherwise fallback.
+func intDefault(n, fallback int) int {
+	if n > 0 {
+		return n
+	}
+	return fallback
 }

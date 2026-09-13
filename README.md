@@ -144,15 +144,32 @@ music-downloader -lyrics -lrc https://www.deezer.com/album/302127
 music-downloader -arl "your_arl_cookie_here" -dir ./music -workers 5 https://www.deezer.com/artist/27
 ```
 
+### Configuration File (`config.toml`)
+
+You can persist your configuration in `~/.config/music-downloader/config.toml` so you don't need to pass `-arl` or other flags on every run:
+
+```toml
+arl = "your_arl_cookie_here"
+quality = "flac"          # "flac", "320", or "128"
+dir = "./downloads"
+workers = 8
+skip = true
+sync = true
+lyrics = true
+lrc = true
+```
+
 CLI Flags:
 
-- `-arl`: Deezer ARL cookie (defaults to `DEEZER_ARL` environment variable).
+- `-config`: Path to custom config file (default: `~/.config/music-downloader/config.toml`).
+- `-arl`: Deezer ARL cookie (defaults to config file or `DEEZER_ARL` environment variable).
 - `-dir`: Target output directory (default: `./downloads`).
-- `-quality`: Audio quality, either `320` or `128` (default: `320`).
+- `-quality`: Audio quality: `flac` (lossless HiFi), `320`, or `128` (default: `320`).
 - `-workers`: Number of parallel track downloads (default: `8`).
 - `-skip`: Skip tracks if output file already exists (default: `false`).
-- `-lyrics`: Embed plain-text lyrics into MP3 ID3v2 tags (default: `false`).
-- `-lrc`: Save synced `.lrc` lyrics file alongside the MP3 (default: `false`).
+- `-sync`: Sync mode: skip valid existing files, re-download corrupt/incomplete ones (default: `false`).
+- `-lyrics`: Embed plain-text lyrics into MP3 ID3v2 or FLAC Vorbis tags (default: `false`).
+- `-lrc`: Save synced `.lrc` lyrics file alongside the audio file (default: `false`).
 - `-cpuprofile`: Path to write CPU profile for callstack analysis (e.g. `cpu.prof`).
 - `-memprofile`: Path to write heap memory allocation profile (e.g. `mem.prof`).
 - `-trace`: Path to write runtime execution trace (e.g. `trace.out`).

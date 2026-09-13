@@ -2,19 +2,34 @@ package tag
 
 import (
 	"fmt"
+	"strings"
 
 	id3 "github.com/bogem/id3v2/v2"
 )
 
-// TrackInfo holds the metadata to write into an MP3 file.
+// TrackInfo holds the metadata to write into an MP3 or FLAC file.
 type TrackInfo struct {
 	Title       string
 	Artist      string
+	AlbumArtist string // TPE2 / ALBUMARTIST
 	Album       string
+	Genre       string // TCON / GENRE
+	ISRC        string // TSRC / ISRC
 	TrackNumber int
+	TrackTotal  int // Total tracks on the disc/album
 	DiscNumber  int
+	DiscTotal   int // Total discs in the album
 	Year        string
 	Lyrics      string
+}
+
+// TagFile writes metadata tags to an audio file (MP3 or FLAC).
+// It dispatches to TagFLAC for .flac files and TagMP3 for .mp3 files.
+func TagFile(filePath string, info TrackInfo, cover []byte) error {
+	if strings.HasSuffix(strings.ToLower(filePath), ".flac") {
+		return TagFLAC(filePath, info, cover)
+	}
+	return TagMP3(filePath, info, cover)
 }
 
 // TagMP3 writes ID3v2 tags to the MP3 file at filePath.
@@ -33,11 +48,30 @@ func TagMP3(filePath string, info TrackInfo, cover []byte) error {
 	f.SetAlbum(info.Album)
 	f.SetYear(info.Year)
 
-	if info.TrackNumber > 0 {
-		f.AddTextFrame("TRCK", id3.EncodingUTF8, fmt.Sprintf("%d", info.TrackNumber))
+	if info.AlbumArtist != "" {
+		f.AddTextFrame("TPE2", id3.EncodingUTF8, info.AlbumArtist)
 	}
-	if info.DiscNumber > 1 {
-		f.AddTextFrame("TPOS", id3.EncodingUTF8, fmt.Sprintf("%d", info.DiscNumber))
+	if info.Genre != "" {
+		f.AddTextFrame("TCON", id3.EncodingUTF8, info.Genre)
+	}
+	if info.ISRC != "" {
+		f.AddTextFrame("TSRC", id3.EncodingUTF8, info.ISRC)
+	}
+
+	if info.TrackNumber > 0 {
+		if info.TrackTotal > 0 {
+			f.AddTextFrame("TRCK", id3.EncodingUTF8, fmt.Sprintf("%d/%d", info.TrackNumber, info.TrackTotal))
+		} else {
+			f.AddTextFrame("TRCK", id3.EncodingUTF8, fmt.Sprintf("%d", info.TrackNumber))
+		}
+	}
+	if info.DiscNumber > 1 || info.DiscTotal > 1 {
+		discNum := max(1, info.DiscNumber)
+		if info.DiscTotal > 0 {
+			f.AddTextFrame("TPOS", id3.EncodingUTF8, fmt.Sprintf("%d/%d", discNum, info.DiscTotal))
+		} else {
+			f.AddTextFrame("TPOS", id3.EncodingUTF8, fmt.Sprintf("%d", discNum))
+		}
 	}
 	if info.Lyrics != "" {
 		f.AddUnsynchronisedLyricsFrame(id3.UnsynchronisedLyricsFrame{

@@ -131,3 +131,73 @@ func TestTagMP3NonExistentFile(t *testing.T) {
 		t.Error("expected error when tagging non-existent file, got nil")
 	}
 }
+
+func TestTagMP3AdvancedFields(t *testing.T) {
+	tmpDir := t.TempDir()
+	mp3Path := filepath.Join(tmpDir, "advanced.mp3")
+	createDummyMP3(t, mp3Path)
+
+	info := TrackInfo{
+		Title:       "Collaboration Song",
+		Artist:      "Featured Artist",
+		AlbumArtist: "Main Album Artist",
+		Album:       "Masterpiece Album",
+		Genre:       "Progressive Rock",
+		ISRC:        "USRC17607839",
+		TrackNumber: 3,
+		TrackTotal:  12,
+		DiscNumber:  1,
+		DiscTotal:   2,
+		Year:        "2024",
+	}
+
+	if err := TagMP3(mp3Path, info, nil); err != nil {
+		t.Fatalf("TagMP3 failed: %v", err)
+	}
+
+	f, err := id3.Open(mp3Path, id3.Options{Parse: true})
+	if err != nil {
+		t.Fatalf("failed to open tagged MP3: %v", err)
+	}
+	defer f.Close()
+
+	// Verify Album Artist (TPE2)
+	tpe2Frames := f.GetFrames("TPE2")
+	if len(tpe2Frames) == 0 {
+		t.Error("missing TPE2 (Album Artist) frame")
+	} else if tf, ok := tpe2Frames[0].(id3.TextFrame); !ok || tf.Text != info.AlbumArtist {
+		t.Errorf("TPE2 frame text = %v, want %q", tpe2Frames[0], info.AlbumArtist)
+	}
+
+	// Verify Genre (TCON)
+	tconFrames := f.GetFrames("TCON")
+	if len(tconFrames) == 0 {
+		t.Error("missing TCON (Genre) frame")
+	} else if tf, ok := tconFrames[0].(id3.TextFrame); !ok || tf.Text != info.Genre {
+		t.Errorf("TCON frame text = %v, want %q", tconFrames[0], info.Genre)
+	}
+
+	// Verify ISRC (TSRC)
+	tsrcFrames := f.GetFrames("TSRC")
+	if len(tsrcFrames) == 0 {
+		t.Error("missing TSRC (ISRC) frame")
+	} else if tf, ok := tsrcFrames[0].(id3.TextFrame); !ok || tf.Text != info.ISRC {
+		t.Errorf("TSRC frame text = %v, want %q", tsrcFrames[0], info.ISRC)
+	}
+
+	// Verify TRCK formatted as 3/12
+	trckFrames := f.GetFrames("TRCK")
+	if len(trckFrames) == 0 {
+		t.Error("missing TRCK frame")
+	} else if tf, ok := trckFrames[0].(id3.TextFrame); !ok || tf.Text != "3/12" {
+		t.Errorf("TRCK frame text = %v, want 3/12", trckFrames[0])
+	}
+
+	// Verify TPOS formatted as 1/2
+	tposFrames := f.GetFrames("TPOS")
+	if len(tposFrames) == 0 {
+		t.Error("missing TPOS frame")
+	} else if tf, ok := tposFrames[0].(id3.TextFrame); !ok || tf.Text != "1/2" {
+		t.Errorf("TPOS frame text = %v, want 1/2", tposFrames[0])
+	}
+}
