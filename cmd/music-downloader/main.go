@@ -23,6 +23,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"log"
 	"os"
 	"os/signal"
@@ -52,8 +53,9 @@ func run() error {
 	// ── Config file (lowest priority) ────────────────────────────────────
 	// We do a first-pass parse just for -config so we know which file to load.
 	firstPass := flag.NewFlagSet("pre", flag.ContinueOnError)
+	firstPass.SetOutput(io.Discard)
 	configPath := firstPass.String("config", "", "")
-	firstPass.Parse(os.Args[1:]) //nolint:errcheck
+	_ = firstPass.Parse(os.Args[1:])
 
 	cfg, _, err := loadConfig(*configPath)
 	if err != nil {
