@@ -18,6 +18,7 @@ type Config struct {
 	Sync    bool   `toml:"sync"`
 	Lyrics  bool   `toml:"lyrics"`
 	LRC     bool   `toml:"lrc"`
+	TUI     *bool  `toml:"tui"`
 }
 
 // defaultConfigPath returns ~/.config/music-downloader/config.toml.
@@ -44,3 +45,12 @@ func loadConfig(path string) (Config, string, error) {
 	}
 	return cfg, path, nil
 }
+
+// boolDefault returns *b if non-nil, otherwise fallback.
+func boolDefault(b *bool, fallback bool) bool {
+	if b != nil {
+		return *b
+	}
+	return fallback
+}
+

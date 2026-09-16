@@ -170,6 +170,7 @@ CLI Flags:
 - `-sync`: Sync mode: skip valid existing files, re-download corrupt/incomplete ones (default: `false`).
 - `-lyrics`: Embed plain-text lyrics into MP3 ID3v2 or FLAC Vorbis tags (default: `false`).
 - `-lrc`: Save synced `.lrc` lyrics file alongside the audio file (default: `false`).
+- `-tui`: Enable animated interactive TUI powered by [bubble-motion](https://github.com/GioTld/bubble-motion) (default: `true` in interactive terminals).
 - `-cpuprofile`: Path to write CPU profile for callstack analysis (e.g. `cpu.prof`).
 - `-memprofile`: Path to write heap memory allocation profile (e.g. `mem.prof`).
 - `-trace`: Path to write runtime execution trace (e.g. `trace.out`).

@@ -33,6 +33,7 @@ import (
 	"syscall"
 
 	"github.com/GioTld/MusicDownloader/deezer"
+	tea "github.com/charmbracelet/bubbletea"
 )
 
 func main() {
@@ -73,6 +74,7 @@ func run() error {
 	sync         := fs.Bool("sync",         cfg.Sync,                                         "sync mode: skip valid files, re-download corrupt/incomplete ones")
 	embedLyrics  := fs.Bool("lyrics",       cfg.Lyrics,                                       "embed lyrics into MP3/FLAC tags")
 	saveLRC      := fs.Bool("lrc",          cfg.LRC,                                          "save synced .lrc lyrics file alongside audio")
+	tuiFlag      := fs.Bool("tui",          boolDefault(cfg.TUI, true),                       "enable animated interactive TUI")
 	cpuProfile   := fs.String("cpuprofile", "",                                               "write cpu profile to file")
 	memProfile   := fs.String("memprofile", "",                                               "write memory profile to file")
 	traceProfile := fs.String("trace",      "",                                               "write execution trace to file")
@@ -145,6 +147,53 @@ func run() error {
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+
+	useTUI := shouldUseColor() && *tuiFlag
+
+	if useTUI {
+		downloadCtx, cancel := context.WithCancel(ctx)
+		defer cancel()
+
+		model := newTUIModel(cancel, string(q), *dir, *workers)
+		p := tea.NewProgram(model)
+
+		client, err := deezer.New(deezer.Options{
+			ARL:          *arl,
+			Quality:      q,
+			Concurrency:  *workers,
+			SkipExisting: *skip || *sync,
+			SyncMode:     *sync,
+			EmbedLyrics:  *embedLyrics,
+			SaveLRC:      *saveLRC,
+			OnTargetResolved: func(target deezer.TargetDetails) {
+				p.Send(tuiTargetMsg(target))
+			},
+			OnAlbumStart: func(albumIndex, totalAlbums int, album deezer.Album) {
+				p.Send(tuiAlbumMsg{index: albumIndex, total: totalAlbums, album: album})
+			},
+			OnTrackComplete: func(res deezer.TrackResult) {
+				p.Send(tuiTrackCompleteMsg(res))
+			},
+		})
+		if err != nil {
+			return fmt.Errorf("init: %w", err)
+		}
+
+		var downloadErr error
+		go func() {
+			_, downloadErr = client.Download(downloadCtx, rawURL, *dir)
+			p.Send(tuiDoneMsg{err: downloadErr})
+		}()
+
+		if _, err := p.Run(); err != nil {
+			return fmt.Errorf("tui: %w", err)
+		}
+
+		if downloadErr != nil && !errors.Is(downloadErr, context.Canceled) {
+			return fmt.Errorf("download failed: %w", downloadErr)
+		}
+		return nil
+	}
 
 	printer := NewPrinter()
 
