@@ -103,8 +103,6 @@ func (m tuiModel) Init() tea.Cmd {
 }
 
 func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	var cmds []tea.Cmd
-
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		switch msg.String() {
@@ -118,6 +116,7 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, tea.Quit
 			}
 		}
+		return m, nil
 
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
@@ -130,30 +129,30 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			barWidth = 20
 		}
 		m.progressBar.Progress.Width = barWidth
+		return m, nil
 
 	case motion.TickMsg:
 		m.elapsed = time.Since(m.startTime).Round(100 * time.Millisecond)
-		var cmd tea.Cmd
-		m.gradientTitle, cmd = m.gradientTitle.Update(msg)
-		cmds = append(cmds, cmd)
-
-		m.progressBar, cmd = m.progressBar.Update(msg)
-		cmds = append(cmds, cmd)
+		m.gradientTitle, _ = m.gradientTitle.Update(msg)
+		m.progressBar, _ = m.progressBar.Update(msg)
 
 		if !m.isDone || m.progressBar.Active() {
-			cmds = append(cmds, motion.Tick())
+			return m, motion.Tick()
 		}
+		return m, nil
 
 	case tuiTargetMsg:
 		m.target = deezer.TargetDetails(msg)
 		m.totalTracks = m.target.TotalTracks
 		m.totalAlbums = m.target.TotalAlbums
 		m.hasTarget = true
+		return m, nil
 
 	case tuiAlbumMsg:
 		m.currentAlbumIndex = msg.index
 		m.totalAlbums = msg.total
 		m.currentAlbum = msg.album
+		return m, nil
 
 	case tuiTrackCompleteMsg:
 		m.totalProcessed++
@@ -174,10 +173,9 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		if m.totalTracks > 0 {
 			fraction := float64(m.totalProcessed) / float64(m.totalTracks)
-			var cmd tea.Cmd
-			m.progressBar, cmd = m.progressBar.SetPercent(fraction)
-			cmds = append(cmds, cmd)
+			m.progressBar, _ = m.progressBar.SetPercent(fraction)
 		}
+		return m, nil
 
 	case tuiDoneMsg:
 		m.isDone = true
@@ -186,11 +184,10 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.totalTracks > 0 {
 			m.progressBar, _ = m.progressBar.SetPercent(1.0)
 		}
-		// Return Quit immediately if an error aborted the run or let user see final summary
 		return m, tea.Quit
 	}
 
-	return m, tea.Batch(cmds...)
+	return m, nil
 }
 
 func (m tuiModel) View() string {

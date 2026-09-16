@@ -11,6 +11,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // gwResponse is the envelope type for Deezer's private gw-light.php API.
@@ -429,20 +430,23 @@ func (c *Client) getLyrics(ctx context.Context, track Track) (text string, lrc s
 	}
 
 	if text == "" && lrc == "" {
-		text, lrc = c.fetchLRCLIB(track)
+		text, lrc = c.fetchLRCLIB(ctx, track)
 	}
 
 	return text, lrc, nil
 }
 
-func (c *Client) fetchLRCLIB(track Track) (text string, lrc string) {
+func (c *Client) fetchLRCLIB(ctx context.Context, track Track) (text string, lrc string) {
+	reqCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+
 	u := fmt.Sprintf("https://lrclib.net/api/get?artist_name=%s&track_name=%s&album_name=%s&duration=%d",
 		url.QueryEscape(track.Artist),
 		url.QueryEscape(track.Title),
 		url.QueryEscape(track.Album),
 		track.Duration,
 	)
-	req, err := http.NewRequest(http.MethodGet, u, nil)
+	req, err := http.NewRequestWithContext(reqCtx, http.MethodGet, u, nil)
 	if err != nil {
 		return "", ""
 	}

@@ -143,3 +143,20 @@ func TestTUIModelContextCancel(t *testing.T) {
 		t.Error("expected context to be cancelled on Ctrl+C")
 	}
 }
+
+func TestTUITickNoExplosion(t *testing.T) {
+	m := newTUIModel(func() {}, "FLAC", "./test_downloads", 8)
+	_, cmd := m.Update(motion.TickMsg{Time: time.Now()})
+	if cmd == nil {
+		t.Fatal("expected non-nil cmd from TickMsg when active")
+	}
+
+	// Track complete should NOT return tick commands (which would cause multiplication)
+	_, trackCmd := m.Update(tuiTrackCompleteMsg(deezer.TrackResult{
+		Track:  deezer.Track{Title: "Test", Artist: "Test", Duration: 100},
+		Status: deezer.StatusDownloaded,
+	}))
+	if trackCmd != nil {
+		t.Errorf("expected tuiTrackCompleteMsg to return nil cmd to avoid tick multiplication, got %v", trackCmd)
+	}
+}

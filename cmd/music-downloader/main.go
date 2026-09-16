@@ -155,7 +155,7 @@ func run() error {
 		defer cancel()
 
 		model := newTUIModel(cancel, string(q), *dir, *workers)
-		p := tea.NewProgram(model)
+		p := tea.NewProgram(model, tea.WithContext(downloadCtx))
 
 		client, err := deezer.New(deezer.Options{
 			ARL:          *arl,
@@ -180,17 +180,27 @@ func run() error {
 		}
 
 		var downloadErr error
+		downloadDone := make(chan struct{})
 		go func() {
+			defer close(downloadDone)
 			_, downloadErr = client.Download(downloadCtx, rawURL, *dir)
 			p.Send(tuiDoneMsg{err: downloadErr})
 		}()
 
-		if _, err := p.Run(); err != nil {
+		if _, err := p.Run(); err != nil && !errors.Is(err, tea.ErrProgramKilled) {
 			return fmt.Errorf("tui: %w", err)
 		}
 
-		if downloadErr != nil && !errors.Is(downloadErr, context.Canceled) {
+		<-downloadDone
+
+		if downloadErr != nil {
+			if errors.Is(downloadErr, context.Canceled) {
+				return downloadErr
+			}
 			return fmt.Errorf("download failed: %w", downloadErr)
+		}
+		if errors.Is(downloadCtx.Err(), context.Canceled) {
+			return downloadCtx.Err()
 		}
 		return nil
 	}
