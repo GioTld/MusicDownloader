@@ -1,5 +1,7 @@
 github.com/BurntSushi/toml v1.6.0 h1:dRaEfpa2VI55EwlIW72hMRHdWouJeRF7TPYhI+AUQjk=
 github.com/BurntSushi/toml v1.6.0/go.mod h1:ukJfTF/6rtPPRCnwkur4qwRxa8vTRFBF0uk2lLoLwho=
+github.com/GioTld/bubble-motion v0.0.0-20260916231018-afb837a50940 h1:y4c/TRHHkcoSkdD7jT4POxuluWTbuKxXx9uhkN0fMGw=
+github.com/GioTld/bubble-motion v0.0.0-20260916231018-afb837a50940/go.mod h1:TD8t+iSu9PYd3FbmB/gsqDR2/mg97rx4c+rqcYAt2OE=
 github.com/aymanbagabas/go-osc52/v2 v2.0.1 h1:HwpRHbFMcZLEVr42D4p7XBqjyuxQH5SMiErDT4WkJ2k=
 github.com/aymanbagabas/go-osc52/v2 v2.0.1/go.mod h1:uYgXzlJ7ZpABp8OJ+exZzJJhRNQ2ASbcXHWsFqH8hp8=
 github.com/bogem/id3v2/v2 v2.1.4 h1:CEwe+lS2p6dd9UZRlPc1zbFNIha2mb2qzT1cCEoNWoI=

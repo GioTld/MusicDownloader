@@ -4,7 +4,7 @@ go 1.27.1
 
 require (
 	github.com/BurntSushi/toml v1.6.0
-	github.com/GioTld/bubble-motion v0.0.0-00010101000000-000000000000
+	github.com/GioTld/bubble-motion v0.0.0-20260916231018-afb837a50940
 	github.com/bogem/id3v2/v2 v2.1.4
 	github.com/charmbracelet/bubbles v1.0.0
 	github.com/charmbracelet/bubbletea v1.3.10
@@ -35,5 +35,3 @@ require (
 	golang.org/x/sys v0.47.0 // indirect
 	golang.org/x/text v0.40.0 // indirect
 )
-
-replace github.com/GioTld/bubble-motion => ../tui/bubble
